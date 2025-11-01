@@ -8,11 +8,14 @@ import com.hubertbobowik.tiebreaker.application.impl.MatchServiceImpl;
 import com.hubertbobowik.tiebreaker.domain.Match;
 import com.hubertbobowik.tiebreaker.domain.MatchId;
 import com.hubertbobowik.tiebreaker.ports.MatchRepository;
+import com.hubertbobowik.tiebreaker.domain.Rules;
+import static com.hubertbobowik.tiebreaker.domain.Rules.TieBreakMode.*;
 
 public final class MainTui {
     public static void main(String[] args) {
         MatchRepository repo = new JsonMatchRepository();
-        MatchService service = new MatchServiceImpl(repo);
+        Rules rules = new Rules(3, CLASSIC7, CLASSIC7);
+        MatchService service = new MatchServiceImpl(repo, rules);
         MatchId matchId = new MatchId("LOCAL-0001");
 
         try (LanternaView view = new LanternaView()) {

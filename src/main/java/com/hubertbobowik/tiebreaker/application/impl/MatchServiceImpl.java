@@ -4,6 +4,7 @@ package com.hubertbobowik.tiebreaker.application.impl;
 import com.hubertbobowik.tiebreaker.application.MatchService;
 import com.hubertbobowik.tiebreaker.domain.Match;
 import com.hubertbobowik.tiebreaker.domain.MatchId;
+import com.hubertbobowik.tiebreaker.domain.Rules;
 import com.hubertbobowik.tiebreaker.ports.MatchRepository;
 
 import java.util.*;
@@ -11,20 +12,22 @@ import java.util.*;
 public class MatchServiceImpl implements MatchService {
 
     private final MatchRepository repo;
+    private final Rules defaultRules;
 
     // Historia akcji w pamięci (per mecz)
     private final Map<MatchId, Deque<Integer>> undoStack = new HashMap<>();
     private final Map<MatchId, Deque<Integer>> redoStack = new HashMap<>();
 
-    public MatchServiceImpl(MatchRepository repo) {
+    public MatchServiceImpl(MatchRepository repo, Rules defaultRules) {
         this.repo = repo;
+        this.defaultRules = defaultRules != null ? defaultRules : Rules.defaults();
     }
 
     @Override
     public Match getMatch(MatchId id) {
         return repo.findById(id)
                 .orElseGet(() -> {
-                    Match m = new Match(id, "Player A", "Player B");
+                    Match m = new Match(id, "Player A", "Player B", defaultRules);
                     repo.save(m);
                     return m;
                 });
@@ -32,12 +35,8 @@ public class MatchServiceImpl implements MatchService {
 
     @Override
     public Match createMatch(String player1, String player2) {
-        MatchId id = new MatchId("M-" + UUID.randomUUID());
-        Match match = new Match(id, player1, player2);
+        Match match = new Match(new MatchId("M-" + UUID.randomUUID()), player1, player2, defaultRules);
         repo.save(match);
-        // wyczyść historię dla nowego meczu
-        undoStack.remove(id);
-        redoStack.remove(id);
         return match;
     }
 
@@ -46,10 +45,6 @@ public class MatchServiceImpl implements MatchService {
         Match match = getMatch(id);
         match.addPointFor(playerIndex);
         repo.save(match);
-
-        // zapamiętaj akcję do undo i wyczyść redo
-        undoStack.computeIfAbsent(id, k -> new ArrayDeque<>()).push(playerIndex);
-        redoStack.remove(id);
         return match;
     }
 
