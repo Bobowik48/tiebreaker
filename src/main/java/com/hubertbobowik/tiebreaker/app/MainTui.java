@@ -23,11 +23,14 @@ public final class MainTui {
             view.renderScore(m);
 
             while (true) {
+                view.checkResizeAndRedraw(m);
+
                 UserIntent intent = view.readIntent();
                 switch (intent) {
                     case POINT_A -> { m = service.addPoint(matchId, 0); view.renderScore(m); }
                     case POINT_B -> { m = service.addPoint(matchId, 1); view.renderScore(m); }
-                    case UNDO, REDO -> { /* wkrótce */ }
+                    case UNDO -> { m = service.undo(matchId); view.renderScore(m); }
+                    case REDO -> { m = service.redo(matchId); view.renderScore(m); }
                     case QUIT -> { return; }
                     case NONE -> { /* no-op */ }
                 }

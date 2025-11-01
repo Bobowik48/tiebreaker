@@ -28,4 +28,9 @@ public final class Match {
         if (playerIndex == 0) pointsA++;
         else pointsB++;
     }
+
+    public void removePointFor(int playerIndex) {
+        if (playerIndex == 0 && pointsA > 0) pointsA--;
+        if (playerIndex == 1 && pointsB > 0) pointsB--;
+    }
 }

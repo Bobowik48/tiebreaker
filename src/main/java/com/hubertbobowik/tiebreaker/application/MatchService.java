@@ -7,4 +7,6 @@ public interface MatchService {
     Match getMatch(MatchId id);
     Match createMatch(String player1, String player2);
     Match addPoint(MatchId id, int playerIndex);
+    Match undo(MatchId id);
+    Match redo(MatchId id);
 }

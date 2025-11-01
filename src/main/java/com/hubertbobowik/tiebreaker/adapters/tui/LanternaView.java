@@ -1,47 +1,85 @@
 package com.hubertbobowik.tiebreaker.adapters.tui;
 
+import com.googlecode.lanterna.SGR;
 import com.googlecode.lanterna.TerminalSize;
+import com.googlecode.lanterna.TextColor;
+import com.googlecode.lanterna.graphics.TextGraphics;
 import com.googlecode.lanterna.input.KeyStroke;
 import com.googlecode.lanterna.input.KeyType;
 import com.googlecode.lanterna.screen.Screen;
 import com.googlecode.lanterna.terminal.DefaultTerminalFactory;
-import com.googlecode.lanterna.graphics.TextGraphics;
-import com.googlecode.lanterna.SGR;
-import com.googlecode.lanterna.TextColor;
 import com.hubertbobowik.tiebreaker.domain.Match;
 
 import java.io.IOException;
 
-/**
- * Minimalny, ale solidny widok w Lanternie:
- * - rysuje statyczny layout raz
- * - aktualizuje TYLKO linie ze stanem punktów (partial redraw)
- * - mapuje klawisze: A/B (punkt), U (undo - wkrótce), R (redo - wkrótce), Q (quit)
- */
 public final class LanternaView implements AutoCloseable {
 
-    public enum UserIntent { POINT_A, POINT_B, UNDO, REDO, QUIT, NONE }
+    public enum UserIntent {POINT_A, POINT_B, UNDO, REDO, QUIT, NONE}
 
     private Screen screen;
     private TextGraphics g;
+    private TerminalSize lastSize;
 
     private boolean staticDrawn = false;
     private int lastA = Integer.MIN_VALUE;
     private int lastB = Integer.MIN_VALUE;
 
-    // Stałe pozycje elementów (jeden punkt od lewej, dwa od góry)
+    // Layout (możesz zmieniać)
     private static final int TITLE_ROW = 1;
     private static final int NAMES_ROW = 3;
     private static final int SCORE_ROW = 5;
     private static final int HELP_ROW  = 8;
 
     public void open() throws IOException {
-        var factory = new DefaultTerminalFactory();
-        factory.setInitialTerminalSize(new TerminalSize(60, 14));
+        DefaultTerminalFactory factory = new DefaultTerminalFactory()
+                .setInitialTerminalSize(new TerminalSize(100, 30));
+
+        // For Windows/Mac stability — prefer emulator if possible
+        factory.setPreferTerminalEmulator(true);
+
         screen = factory.createScreen();
         screen.startScreen();
         screen.setCursorPosition(null);
+
         g = screen.newTextGraphics();
+
+        screen.clear();
+        screen.refresh(Screen.RefreshType.COMPLETE);
+
+        lastSize = screen.getTerminalSize();
+        staticDrawn = false;
+        lastA = Integer.MIN_VALUE;
+        lastB = Integer.MIN_VALUE;
+    }
+
+    /** Wołaj w każdej iteracji pętli zanim przeczytasz klawisz. */
+    public void checkResizeAndRedraw(Match m) throws IOException {
+        TerminalSize newSize = screen.doResizeIfNecessary();
+        TerminalSize current = screen.getTerminalSize();
+        boolean resized = (newSize != null && !newSize.equals(lastSize)) || !current.equals(lastSize);
+
+        if (resized) {
+            lastSize = current;
+            staticDrawn = false;
+            lastA = Integer.MIN_VALUE;
+            lastB = Integer.MIN_VALUE;
+            screen.refresh(Screen.RefreshType.COMPLETE);
+        }
+
+        // Za małe okno
+        if (current.getColumns() < 40 || current.getRows() < 10) {
+            screen.clear();
+            g.setForegroundColor(TextColor.ANSI.WHITE);
+            g.putString(1, 1, "Powieksz okno (min 40x10), aby wyswietlic UI.", SGR.BOLD);
+            screen.refresh();
+            staticDrawn = false;
+            return;
+        }
+
+        if (!staticDrawn) {
+            renderStatic(m);
+            renderScore(m);
+        }
     }
 
     public void renderStatic(Match m) throws IOException {
@@ -49,41 +87,33 @@ public final class LanternaView implements AutoCloseable {
 
         screen.clear();
 
-        // Tytuł
         g.setForegroundColor(TextColor.ANSI.WHITE);
-        g.putString(2, TITLE_ROW, "TIEBREAKER — TEXT UI", SGR.BOLD);
+        g.putString(2, TITLE_ROW, "TIEBREAKER — TRYB TEKSTOWY", SGR.BOLD);
 
-        // Zawodnicy
-        g.putString(2, NAMES_ROW,
-                m.playerA() + "   vs   " + m.playerB());
+        g.setForegroundColor(TextColor.ANSI.WHITE);
+        g.putString(2, NAMES_ROW, m.playerA() + "   vs   " + m.playerB());
 
-        // Opis klawiszy
+        g.setForegroundColor(TextColor.ANSI.CYAN);
+        g.putString(2, SCORE_ROW, "Wynik: ");
+
         g.setForegroundColor(TextColor.ANSI.YELLOW);
-        g.putString(2, HELP_ROW, "[A] point A   [B] point B   [U] undo   [R] redo   [Q] quit");
+        g.putString(2, HELP_ROW,
+                "[A] punkt dla A   [B] punkt dla B   [U] cofnij   [R] przywróć   [Q] wyjście");
 
         screen.refresh();
         staticDrawn = true;
     }
 
-    /** Tylko aktualizacja wyniku – żadnego pełnego czyszczenia ekranu. */
+    /** Aktualizacja tylko wyniku, bez migotania. */
     public void renderScore(Match m) throws IOException {
         int a = m.pointsA();
         int b = m.pointsB();
 
         if (a != lastA || b != lastB) {
-            // label
-            g.setForegroundColor(TextColor.ANSI.CYAN);
-            g.putString(2, SCORE_ROW, "Score: ");
-
-            // wartość
             g.setForegroundColor(TextColor.ANSI.GREEN);
-            // nadpisz starą wartość bez zostawiania śmieci
-            String score = a + " : " + b;
-            String padded = padRight(score, 9); // trochę luzu na nadpisanie dłuższych wartości
+            String padded = padRight(a + " : " + b, 9);
             g.putString(10, SCORE_ROW, padded);
-
             screen.refresh();
-
             lastA = a;
             lastB = b;
         }
@@ -94,10 +124,14 @@ public final class LanternaView implements AutoCloseable {
         return s + " ".repeat(len - s.length());
     }
 
-    /** Zwraca intencję użytkownika (blokująco czeka na klawisz). */
+    /** Nieblokujący input — bez zacięć. */
     public UserIntent readIntent() throws IOException {
-        KeyStroke ks = screen.readInput();
-        if (ks == null) return UserIntent.NONE;
+        KeyStroke ks = screen.pollInput();
+        if (ks == null) {
+            // delikatny oddech CPU
+            try { Thread.sleep(16); } catch (InterruptedException ignored) {}
+            return UserIntent.NONE;
+        }
 
         if (ks.getKeyType() == KeyType.Character) {
             char c = Character.toUpperCase(ks.getCharacter());
@@ -110,9 +144,8 @@ public final class LanternaView implements AutoCloseable {
                 default  -> UserIntent.NONE;
             };
         }
-        if (ks.getKeyType() == KeyType.EOF) {
-            return UserIntent.QUIT;
-        }
+
+        if (ks.getKeyType() == KeyType.EOF) return UserIntent.QUIT;
         return UserIntent.NONE;
     }
 
