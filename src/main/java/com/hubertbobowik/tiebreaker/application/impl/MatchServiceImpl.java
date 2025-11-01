@@ -1,4 +1,3 @@
-// src/main/java/com/hubertbobowik/tiebreaker/application/impl/MatchServiceImpl.java
 package com.hubertbobowik.tiebreaker.application.impl;
 
 import com.hubertbobowik.tiebreaker.application.MatchService;
@@ -14,9 +13,9 @@ public class MatchServiceImpl implements MatchService {
     private final MatchRepository repo;
     private final Rules defaultRules;
 
-    // Historia akcji w pamięci (per mecz)
-    private final Map<MatchId, Deque<Integer>> undoStack = new HashMap<>();
-    private final Map<MatchId, Deque<Integer>> redoStack = new HashMap<>();
+    // pełne snapshoty stanu meczu
+    private final Map<MatchId, Deque<Match>> undoStack = new HashMap<>();
+    private final Map<MatchId, Deque<Match>> redoStack = new HashMap<>();
 
     public MatchServiceImpl(MatchRepository repo, Rules defaultRules) {
         this.repo = repo;
@@ -35,44 +34,59 @@ public class MatchServiceImpl implements MatchService {
 
     @Override
     public Match createMatch(String player1, String player2) {
-        Match match = new Match(new MatchId("M-" + UUID.randomUUID()), player1, player2, defaultRules);
-        repo.save(match);
-        return match;
+        Match m = new Match(new MatchId("M-" + UUID.randomUUID()), player1, player2, defaultRules);
+        repo.save(m);
+        return m;
     }
 
     @Override
     public Match addPoint(MatchId id, int playerIndex) {
-        Match match = getMatch(id);
-        match.addPointFor(playerIndex);
-        repo.save(match);
-        return match;
+        Match current = getMatch(id);
+
+        // snapshot przed zmianą
+        undoStack.computeIfAbsent(id, k -> new ArrayDeque<>()).push(current.copy());
+        redoStack.computeIfAbsent(id, k -> new ArrayDeque<>()).clear();
+
+        current.addPointFor(playerIndex);
+        repo.save(current);
+        return current;
     }
 
     @Override
     public Match undo(MatchId id) {
-        Deque<Integer> u = undoStack.getOrDefault(id, new ArrayDeque<>());
-        if (u.isEmpty()) return getMatch(id);
+        Deque<Match> stack = undoStack.get(id);
+        if (stack == null || stack.isEmpty())
+            return getMatch(id);
 
-        Integer last = u.pop();
-        Match match = getMatch(id);
-        match.removePointFor(last);
-        repo.save(match);
+        Match current = getMatch(id);
+        redoStack.computeIfAbsent(id, k -> new ArrayDeque<>()).push(current.copy());
 
-        redoStack.computeIfAbsent(id, k -> new ArrayDeque<>()).push(last);
-        return match;
+        Match prev = stack.pop();
+        repo.save(prev);
+        return prev;
     }
 
     @Override
     public Match redo(MatchId id) {
-        Deque<Integer> r = redoStack.getOrDefault(id, new ArrayDeque<>());
-        if (r.isEmpty()) return getMatch(id);
+        Deque<Match> stack = redoStack.get(id);
+        if (stack == null || stack.isEmpty())
+            return getMatch(id);
 
-        Integer again = r.pop();
-        Match match = getMatch(id);
-        match.addPointFor(again);
-        repo.save(match);
+        Match current = getMatch(id);
+        undoStack.computeIfAbsent(id, k -> new ArrayDeque<>()).push(current.copy());
 
-        undoStack.computeIfAbsent(id, k -> new ArrayDeque<>()).push(again);
-        return match;
+        Match next = stack.pop();
+        repo.save(next);
+        return next;
+    }
+
+    @Override
+    public List<Match> getAllMatches() {
+        return repo.findAll();
+    }
+
+    @Override
+    public List<Match> listFinished() {
+        return repo.findAll().stream().filter(Match::isFinished).toList();
     }
 }

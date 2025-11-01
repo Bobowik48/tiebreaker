@@ -14,59 +14,53 @@ import java.io.IOException;
 
 public final class LanternaView implements AutoCloseable {
 
-    public enum UserIntent {POINT_A, POINT_B, UNDO, REDO, QUIT, NONE}
+    // Intencje podczas meczu (litery)
+    public enum UserIntent { POINT_A, POINT_B, UNDO, REDO, QUIT, NONE }
+    // Strzałki/Enter/Esc – do nawigacji w menu/listach
+    public enum NavKey { UP, DOWN, ENTER, ESC, NONE }
 
     private Screen screen;
     private TextGraphics g;
     private TerminalSize lastSize;
 
     private boolean staticDrawn = false;
-    private int lastA = Integer.MIN_VALUE;
-    private int lastB = Integer.MIN_VALUE;
 
-    // Layout (możesz zmieniać)
+    // Layout podstawowego ekranu meczu
     private static final int TITLE_ROW = 1;
     private static final int NAMES_ROW = 3;
     private static final int SCORE_ROW = 5;
     private static final int HELP_ROW  = 8;
 
+    // ── ŻYCIE EKRANU ─────────────────────────────────────────────
+
     public void open() throws IOException {
         DefaultTerminalFactory factory = new DefaultTerminalFactory()
-                .setInitialTerminalSize(new TerminalSize(100, 30));
-
-        // For Windows/Mac stability — prefer emulator if possible
-        factory.setPreferTerminalEmulator(true);
+                .setInitialTerminalSize(new TerminalSize(100, 30))
+                .setPreferTerminalEmulator(true); // stabilniej na Win/Mac
 
         screen = factory.createScreen();
         screen.startScreen();
         screen.setCursorPosition(null);
 
         g = screen.newTextGraphics();
+        fullClear();
 
-        screen.clear();
-        screen.refresh(Screen.RefreshType.COMPLETE);
-
-        lastSize = screen.getTerminalSize();
+        lastSize   = screen.getTerminalSize();
         staticDrawn = false;
-        lastA = Integer.MIN_VALUE;
-        lastB = Integer.MIN_VALUE;
     }
 
-    /** Wołaj w każdej iteracji pętli zanim przeczytasz klawisz. */
+    /** Wołaj w pętli – dba o poprawne odrysowanie po resize. */
     public void checkResizeAndRedraw(Match m) throws IOException {
         TerminalSize newSize = screen.doResizeIfNecessary();
         TerminalSize current = screen.getTerminalSize();
         boolean resized = (newSize != null && !newSize.equals(lastSize)) || !current.equals(lastSize);
 
         if (resized) {
-            lastSize = current;
+            lastSize   = current;
             staticDrawn = false;
-            lastA = Integer.MIN_VALUE;
-            lastB = Integer.MIN_VALUE;
             screen.refresh(Screen.RefreshType.COMPLETE);
         }
 
-        // Za małe okno
         if (current.getColumns() < 40 || current.getRows() < 10) {
             screen.clear();
             g.setForegroundColor(TextColor.ANSI.WHITE);
@@ -78,9 +72,18 @@ public final class LanternaView implements AutoCloseable {
 
         if (!staticDrawn) {
             renderStatic(m);
-            renderScore(m);
+            renderScoreLine(m.scoreLine());
         }
     }
+
+    /** Twarde czyszczenie ekranu (np. przy zmianie ekranu). */
+    public void fullClear() throws IOException {
+        screen.clear();
+        screen.refresh(Screen.RefreshType.COMPLETE);
+        staticDrawn = false;
+    }
+
+    // ── RYSOWANIE EKRANU MECZU ──────────────────────────────────
 
     public void renderStatic(Match m) throws IOException {
         if (staticDrawn) return;
@@ -104,35 +107,78 @@ public final class LanternaView implements AutoCloseable {
         staticDrawn = true;
     }
 
-    /** Aktualizacja tylko wyniku, bez migotania. */
-    public void renderScore(Match m) throws IOException {
-        int a = m.pointsA();
-        int b = m.pointsB();
+    /** Aktualizuje wyłącznie linię wyniku (bez migotania). */
+    public void renderScoreLine(String line) throws IOException {
+        g.setForegroundColor(TextColor.ANSI.CYAN);
+        g.putString(2, SCORE_ROW, "Wynik: ");
+        g.setForegroundColor(TextColor.ANSI.GREEN);
+        g.putString(10, SCORE_ROW, padRight(line, 32));
+        screen.refresh();
+    }
 
-        if (a != lastA || b != lastB) {
-            g.setForegroundColor(TextColor.ANSI.GREEN);
-            String padded = padRight(a + " : " + b, 9);
-            g.putString(10, SCORE_ROW, padded);
-            screen.refresh();
-            lastA = a;
-            lastB = b;
+    /** Pasek zwycięzcy po zakończeniu meczu. */
+    public void renderWinner(String line) throws IOException {
+        g.setForegroundColor(TextColor.ANSI.WHITE);
+        g.putString(2, SCORE_ROW + 2, padRight(line + "   [Q] menu", 60), SGR.BOLD);
+        screen.refresh();
+    }
+
+    // ── PRYMITYWY: MENU / LISTY ─────────────────────────────────
+
+    public void renderSimpleMenu(String title, String[] items, int selected) throws IOException {
+        fullClear();
+        g.setForegroundColor(TextColor.ANSI.WHITE);
+        g.putString(2, 1, title, SGR.BOLD);
+
+        for (int i = 0; i < items.length; i++) {
+            boolean sel = (i == selected);
+            g.setForegroundColor(sel ? TextColor.ANSI.GREEN : TextColor.ANSI.WHITE);
+            g.putString(4, 3 + i, (sel ? "› " : "  ") + items[i]);
+        }
+        g.setForegroundColor(TextColor.ANSI.YELLOW);
+        g.putString(2, 3 + items.length + 1, "[↑/↓] wybór   [Enter] zatwierdź   [Esc] wstecz");
+        screen.refresh();
+    }
+
+    public void renderMatchesList(String title, java.util.List<String> lines, int selected) throws IOException {
+        fullClear();
+        g.setForegroundColor(TextColor.ANSI.WHITE);
+        g.putString(2, 1, title, SGR.BOLD);
+        for (int i = 0; i < lines.size(); i++) {
+            boolean sel = (i == selected);
+            g.setForegroundColor(sel ? TextColor.ANSI.GREEN : TextColor.ANSI.WHITE);
+            g.putString(4, 3 + i, (sel ? "› " : "  ") + lines.get(i));
+        }
+        g.setForegroundColor(TextColor.ANSI.YELLOW);
+        g.putString(2, 3 + lines.size() + 1, "[↑/↓] wybór   [Esc] wstecz");
+        screen.refresh();
+    }
+
+    /** Prosty dialog: Enter = TAK, Esc = NIE. */
+    public boolean confirm(String question) throws IOException {
+        fullClear();
+        g.setForegroundColor(TextColor.ANSI.WHITE);
+        g.putString(2, 2, question, SGR.BOLD);
+        g.setForegroundColor(TextColor.ANSI.YELLOW);
+        g.putString(2, 4, "[Enter] tak    [Esc] nie");
+        screen.refresh();
+        while (true) {
+            KeyStroke ks = screen.readInput();
+            if (ks == null) continue;
+            if (ks.getKeyType() == KeyType.Enter)  return true;
+            if (ks.getKeyType() == KeyType.Escape) return false;
         }
     }
 
-    private static String padRight(String s, int len) {
-        if (s.length() >= len) return s;
-        return s + " ".repeat(len - s.length());
-    }
+    // ── WEJŚCIE KLAWIATUROWE ────────────────────────────────────
 
-    /** Nieblokujący input — bez zacięć. */
+    /** Nieblokujący odczyt liter dla meczu. */
     public UserIntent readIntent() throws IOException {
         KeyStroke ks = screen.pollInput();
         if (ks == null) {
-            // delikatny oddech CPU
             try { Thread.sleep(16); } catch (InterruptedException ignored) {}
             return UserIntent.NONE;
         }
-
         if (ks.getKeyType() == KeyType.Character) {
             char c = Character.toUpperCase(ks.getCharacter());
             return switch (c) {
@@ -144,9 +190,27 @@ public final class LanternaView implements AutoCloseable {
                 default  -> UserIntent.NONE;
             };
         }
-
         if (ks.getKeyType() == KeyType.EOF) return UserIntent.QUIT;
         return UserIntent.NONE;
+    }
+
+    /** Blokujący odczyt nawigacji (menu/listy). */
+    public NavKey readKey() throws IOException {
+        KeyStroke ks = screen.readInput();
+        if (ks == null) return NavKey.NONE;
+        return switch (ks.getKeyType()) {
+            case ArrowUp   -> NavKey.UP;
+            case ArrowDown -> NavKey.DOWN;
+            case Enter     -> NavKey.ENTER;
+            case Escape    -> NavKey.ESC;
+            default        -> NavKey.NONE;
+        };
+    }
+
+    // ── UTIL ────────────────────────────────────────────────────
+    private static String padRight(String s, int len) {
+        if (s.length() >= len) return s;
+        return s + " ".repeat(len - s.length());
     }
 
     @Override
