@@ -1,6 +1,7 @@
 package com.hubertbobowik.tiebreaker.app;
 
-import java.util.Scanner;
+import com.hubertbobowik.tiebreaker.adapters.tui.LanternaView;
+import com.hubertbobowik.tiebreaker.adapters.tui.LanternaView.UserIntent;
 import com.hubertbobowik.tiebreaker.application.MatchService;
 import com.hubertbobowik.tiebreaker.application.impl.MatchServiceImpl;
 import com.hubertbobowik.tiebreaker.domain.Match;
@@ -11,21 +12,38 @@ public final class MainTui {
         MatchService service = new MatchServiceImpl();
         MatchId matchId = new MatchId("LOCAL-0001");
 
-        Scanner in = new Scanner(System.in);
-        System.out.println("=== TieBreaker — bootstrap ===");
-        System.out.println("[A] point A  [B] point B  [Q] quit");
+        try (LanternaView view = new LanternaView()) {
+            view.open();
 
-        while (true) {
             Match m = service.getMatch(matchId);
-            System.out.println(m.playerA() + " vs " + m.playerB() + "   score: " + m.pointsA() + " : " + m.pointsB());
-            System.out.print("> ");
-            String s = in.nextLine().trim().toUpperCase();
-            switch (s) {
-                case "A" -> service.addPoint(matchId, 0);
-                case "B" -> service.addPoint(matchId, 1);
-                case "Q" -> { System.out.println("Bye!"); return; }
-                default  -> System.out.println("Unknown command");
+            view.renderStatic(m);
+            view.renderScore(m);
+
+            while (true) {
+                UserIntent intent = view.readIntent();
+                switch (intent) {
+                    case POINT_A -> {
+                        m = service.addPoint(matchId, 0);
+                        view.renderScore(m); // tylko linia wyniku
+                    }
+                    case POINT_B -> {
+                        m = service.addPoint(matchId, 1);
+                        view.renderScore(m);
+                    }
+                    case UNDO -> {
+                        // TODO: po wprowadzeniu historii (undo/redo)
+                    }
+                    case REDO -> {
+                        // TODO
+                    }
+                    case QUIT -> {
+                        return;
+                    }
+                    case NONE -> { /* ignoruj */ }
+                }
             }
+        } catch (Exception e) {
+            e.printStackTrace();
         }
     }
 }
