@@ -123,6 +123,13 @@ public final class LanternaView implements AutoCloseable {
         screen.refresh();
     }
 
+    public void renderElapsed(String text) throws IOException {
+        g.setForegroundColor(TextColor.ANSI.WHITE);
+        // pod linią wyniku (SCORE_ROW + 1)
+        g.putString(2, SCORE_ROW + 1, padRight(text, 40));
+        screen.refresh();
+    }
+
     /**
      * Pasek zwycięzcy po zakończeniu meczu.
      */
@@ -153,12 +160,16 @@ public final class LanternaView implements AutoCloseable {
 
     public void renderMatchesList(String title, java.util.List<String> lines, int selected) throws IOException {
         fullClear();
+        int w = screen.getTerminalSize().getColumns();
+        int usable = Math.max(10, w - 6); // marginesy
+
         g.setForegroundColor(TextColor.ANSI.WHITE);
         g.putString(2, 1, title, SGR.BOLD);
+
         for (int i = 0; i < lines.size(); i++) {
             boolean sel = (i == selected);
             g.setForegroundColor(sel ? TextColor.ANSI.GREEN : TextColor.ANSI.WHITE);
-            g.putString(4, 3 + i, (sel ? "› " : "  ") + lines.get(i));
+            g.putString(4, 3 + i, (sel ? "› " : "  ") + clip(lines.get(i), usable));
         }
         g.setForegroundColor(TextColor.ANSI.YELLOW);
         g.putString(2, 3 + lines.size() + 1, "[↑/↓] wybór   [Esc] wstecz");
@@ -283,10 +294,16 @@ public final class LanternaView implements AutoCloseable {
         };
     }
 
-    // ── UTIL ────────────────────────────────────────────────────
     private static String padRight(String s, int len) {
         if (s.length() >= len) return s;
         return s + " ".repeat(len - s.length());
+    }
+
+    private static String clip(String s, int max) {
+        if (max <= 0) return "";
+        if (s.length() <= max) return s;
+        if (max <= 1) return "…";
+        return s.substring(0, max - 1) + "…";
     }
 
     @Override
