@@ -14,7 +14,7 @@ import java.util.Optional;
 
 public final class JsonMatchRepository implements MatchRepository {
 
-    private static final Path DATA_DIR  = Paths.get("data");
+    private static final Path DATA_DIR = Paths.get("data");
     private static final Path DATA_FILE = DATA_DIR.resolve("matches.json");
 
     private final ObjectMapper mapper;
@@ -49,7 +49,27 @@ public final class JsonMatchRepository implements MatchRepository {
         writeStore(store);
     }
 
+    @Override
+    public void delete(MatchId id) {
+        var all = findAll();
+        all.removeIf(m -> m.id().equals(id));
+        writeAllMatches(all);
+    }
+
+
     // ───────────────────────────────────────────────────────────────────────────
+
+    private void writeAllMatches(java.util.List<Match> matches) {
+        try {
+            var dtos = matches.stream()
+                    .map(MatchDto::fromDomain)
+                    .toList();
+
+            mapper.writeValue(DATA_FILE.toFile(), dtos);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
 
     private void ensureFileExists() {
         try {

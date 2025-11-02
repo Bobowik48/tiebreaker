@@ -29,7 +29,8 @@ public final class HistoryScreen {
 
         List<String> lines = finished.stream().map(m -> {
             String ts = TS.format(m.createdAt());
-            String who = (m.winner() != null && m.winner() == 0) ? m.playerA() : m.playerB();
+            String who = (m.winner() == null) ? "brak zwycięzcy"
+                    : (m.winner() == 0 ? m.playerA() : m.playerB());
             Duration d = m.elapsed();
             long h = d.toHours();
             long mm = d.toMinutesPart();

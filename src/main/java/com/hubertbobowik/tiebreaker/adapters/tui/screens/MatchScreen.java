@@ -5,16 +5,13 @@ import com.hubertbobowik.tiebreaker.application.MatchService;
 import com.hubertbobowik.tiebreaker.domain.Match;
 import com.hubertbobowik.tiebreaker.domain.MatchId;
 
-/**
- * Ekran meczu: obsługa punktów, czasu, serwującego i stanu „po zakończeniu”.
- */
 public final class MatchScreen {
 
-    public enum Result {BACK_TO_MENU, SHOW_HISTORY}
+    public enum Result {BACK_TO_MENU, GO_TO_HISTORY}
 
     private final LanternaView view;
     private final MatchService service;
-    private long lastTick = -1;
+    long lastTick = -1;
 
     public MatchScreen(LanternaView view, MatchService service) {
         this.view = view;
@@ -23,16 +20,48 @@ public final class MatchScreen {
 
     public Result run(MatchId matchId) throws Exception {
         Match m = service.getMatch(matchId);
-
         view.fullClear();
         view.renderStatic(m);
         view.renderScoreLine(m.scoreLine());
         view.renderServer("Serwuje: " + (m.currentServerForDisplay() == 0 ? m.playerA() : m.playerB()));
 
+        boolean winnerPanelShown = false;
+
         while (true) {
+            // Jeśli mecz skończony: pokazujemy panel i czekamy na Q/H/Enter
+            if (m.isFinished()) {
+                if (!winnerPanelShown) {
+                    String winName = (m.winner() != null) ? (m.winner() == 0 ? m.playerA() : m.playerB())
+                            : "(brak zwycięzcy)";
+                    view.renderWinnerPanel(winName);
+                    winnerPanelShown = true;
+                }
+
+                // Tryb końcowy – tylko klawisze nawigacyjne/znakowe.
+                var ks = view.readRaw();
+                if (ks == null) continue;
+
+                switch (ks.getKeyType()) {
+                    case Character -> {
+                        char c = Character.toUpperCase(ks.getCharacter());
+                        if (c == 'H') return Result.GO_TO_HISTORY;
+                        if (c == 'Q') return Result.BACK_TO_MENU;
+                        // inne znaki ignorujemy
+                    }
+                    case Enter -> {
+                        return Result.GO_TO_HISTORY;
+                    }
+                    case Escape -> {
+                        return Result.BACK_TO_MENU;
+                    }
+                    default -> { /* ignoruj */ }
+                }
+                continue;
+            }
+
+            // ⬇️ Tylko gdy mecz TRWA – odświeżamy zegar i serwującego
             view.checkResizeAndRedraw(m);
 
-            // tyknięcie sekundnika + powtórny render „Serwuje: …”
             long nowSec = System.currentTimeMillis() / 1000;
             if (nowSec != lastTick) {
                 lastTick = nowSec;
@@ -68,31 +97,22 @@ public final class MatchScreen {
                     view.renderScoreLine(m.scoreLine());
                     view.renderServer("Serwuje: " + (m.currentServerForDisplay() == 0 ? m.playerA() : m.playerB()));
                 }
+                case FINISH -> {
+                    if (view.confirm("Zakończyć mecz i zapisać do historii?")) {
+                        m = service.markFinished(matchId); // ustawia finishedAt i finished=true
+                        String winName = (m.winner() != null) ? (m.winner() == 0 ? m.playerA() : m.playerB())
+                                : "(brak zwycięzcy)";
+                        view.renderWinnerPanel(winName);
+                        // Pozwól użytkownikowi wybrać H/Q/Enter w bloku wyżej
+                    } else if (view.confirm("Usunąć mecz bez zapisu?")) {
+                        service.delete(matchId);
+                        return Result.BACK_TO_MENU;
+                    }
+                }
                 case QUIT -> {
                     return Result.BACK_TO_MENU;
                 }
                 case NONE -> { /* nic */ }
-            }
-
-            if (m.isFinished()) {
-                view.renderWinnerPanel(m.winner() == 0 ? m.playerA() : m.playerB());
-
-                // pętla „po meczu”: tylko H (historia) lub Q/Esc (powrót)
-                while (true) {
-                    var ks = view.readRaw();
-                    if (ks == null) continue;
-                    switch (ks.getKeyType()) {
-                        case Character -> {
-                            char c = Character.toUpperCase(ks.getCharacter());
-                            if (c == 'H') return Result.SHOW_HISTORY;
-                            if (c == 'Q') return Result.BACK_TO_MENU;
-                        }
-                        case Escape -> {
-                            return Result.BACK_TO_MENU;
-                        }
-                        default -> { /* ignoruj inne klawisze */ }
-                    }
-                }
             }
         }
     }

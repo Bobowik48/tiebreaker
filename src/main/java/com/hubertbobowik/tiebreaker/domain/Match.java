@@ -38,7 +38,9 @@ public class Match {
         this(id, playerA, playerB, rules, Instant.now());
     }
 
-    /** Pomocniczy konstruktor używany przy odtwarzaniu ze storage. */
+    /**
+     * Pomocniczy konstruktor używany przy odtwarzaniu ze storage.
+     */
     public Match(MatchId id, String playerA, String playerB, Rules rules, Instant createdAt) {
         this.id = id;
         this.playerA = playerA;
@@ -55,7 +57,8 @@ public class Match {
 
         if (game.isFinished()) {
             int w = game.winner();
-            if (w == 0) gamesA++; else gamesB++;
+            if (w == 0) gamesA++;
+            else gamesB++;
 
             // Czy po tym gemie zamkniemy set lub wejdziemy w TB?
             boolean finalSet = isFinalSetIncoming();
@@ -106,7 +109,8 @@ public class Match {
     }
 
     private void awardSetTo(int who) {
-        if (who == 0) setsA++; else setsB++;
+        if (who == 0) setsA++;
+        else setsB++;
 
         // nowy set
         gamesA = gamesB = 0;
@@ -163,19 +167,25 @@ public class Match {
                 game.displayA() + " : " + game.displayB() + (game.isTieBreak() ? " (TB)" : "");
     }
 
-    /** Ustaw startera meczu. Wołaj tuż po utworzeniu meczu. */
+    /**
+     * Ustaw startera meczu. Wołaj tuż po utworzeniu meczu.
+     */
     public void setStartingServer(int s) {
         this.startingServer = (s == 0) ? 0 : 1;
         this.currentServer = this.startingServer;
         this.startingServerOfSet = this.startingServer;
     }
 
-    /** Kto powinien być pokazany jako serwujący aktualnie w UI. */
+    /**
+     * Kto powinien być pokazany jako serwujący aktualnie w UI.
+     */
     public int currentServerForDisplay() {
         return game.isTieBreak() ? serverInTieBreak() : currentServer;
     }
 
-    /** Serwujący w TB: pierwszy punkt starter seta, dalej bloki 2-punktowe. */
+    /**
+     * Serwujący w TB: pierwszy punkt starter seta, dalej bloki 2-punktowe.
+     */
     public int serverInTieBreak() {
         int total = game.tbA() + game.tbB();
         int s = startingServerOfSet;
@@ -190,27 +200,76 @@ public class Match {
     }
 
     // ### Accessors ###
-    public MatchId id() { return id; }
-    public String playerA() { return playerA; }
-    public String playerB() { return playerB; }
-    public Rules rules() { return rules; }
-    public int gamesA() { return gamesA; }
-    public int gamesB() { return gamesB; }
-    public int setsA() { return setsA; }
-    public int setsB() { return setsB; }
-    public GameScore game() { return game; }
-    public boolean isFinished() { return finished; }
-    public Integer winner() { return winner; }
-    public Instant createdAt() { return createdAt; }
-    public Instant finishedAt() { return finishedAt; }
+    public MatchId id() {
+        return id;
+    }
+
+    public String playerA() {
+        return playerA;
+    }
+
+    public String playerB() {
+        return playerB;
+    }
+
+    public Rules rules() {
+        return rules;
+    }
+
+    public int gamesA() {
+        return gamesA;
+    }
+
+    public int gamesB() {
+        return gamesB;
+    }
+
+    public int setsA() {
+        return setsA;
+    }
+
+    public int setsB() {
+        return setsB;
+    }
+
+    public GameScore game() {
+        return game;
+    }
+
+    public boolean isFinished() {
+        return finished;
+    }
+
+    public Integer winner() {
+        return winner;
+    }
+
+    public Instant createdAt() {
+        return createdAt;
+    }
+
+    public Instant finishedAt() {
+        return finishedAt;
+    }
 
     // Gettery serwisu BEZ prefiksu get
-    public int startingServer() { return startingServer; }
-    public int currentServer() { return currentServer; }
-    public int startingServerOfSet() { return startingServerOfSet; }
+    public int startingServer() {
+        return startingServer;
+    }
+
+    public int currentServer() {
+        return currentServer;
+    }
+
+    public int startingServerOfSet() {
+        return startingServerOfSet;
+    }
 
     // ### Copy & restore ###
-    /** Głęboki klon — do undo/redo. */
+
+    /**
+     * Głęboki klon — do undo/redo.
+     */
     public Match copy() {
         Match c = new Match(this.id, this.playerA, this.playerB, this.rules, this.createdAt);
         c.gamesA = this.gamesA;
@@ -235,7 +294,9 @@ public class Match {
         return c;
     }
 
-    /** Przywrócenie stanu punktacji. */
+    /**
+     * Przywrócenie stanu punktacji.
+     */
     public Match restore(int setsA, int setsB, int gamesA, int gamesB,
                          GameScore game, boolean finished, Integer winner) {
         this.setsA = setsA;
@@ -248,7 +309,9 @@ public class Match {
         return this;
     }
 
-    /** Przywrócenie pól serwisu ze storage. */
+    /**
+     * Przywrócenie pól serwisu ze storage.
+     */
     public Match restoreServing(int startingServer, int currentServer, int startingServerOfSet) {
         this.startingServer = (startingServer == 0) ? 0 : 1;
         this.currentServer = (currentServer == 0) ? 0 : 1;
@@ -256,10 +319,19 @@ public class Match {
         return this;
     }
 
-    /** Tylko dla DTO: ustaw finish z pliku. */
+    /**
+     * Tylko dla DTO: ustaw finish z pliku.
+     */
     public Match setFinishedAtFromStorage(Instant finishedAt) {
         this.finishedAt = finishedAt;
         this.finished = finishedAt != null;
         return this;
+    }
+
+    public void finishNow() {
+        if (!finished) {
+            finished = true;
+            finishedAt = java.time.Instant.now();
+        }
     }
 }

@@ -10,4 +10,5 @@ public interface MatchRepository {
     Optional<Match> findById(MatchId id);
     List<Match> findAll();
     void save(Match match);
+    void delete(MatchId id);
 }

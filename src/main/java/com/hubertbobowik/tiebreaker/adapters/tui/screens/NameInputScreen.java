@@ -26,11 +26,8 @@ public final class NameInputScreen {
         String b = inputOne("Wprowadź imię i nazwisko gracza 2:", "");
         if (b == null) return null;
 
-        // Minimalna sanityzacja: przytnij spacje brzegowe, kolejne spacje redukuj do jednej
         a = normalize(a);
         b = normalize(b);
-        if (a.isBlank()) a = "Player A";
-        if (b.isBlank()) b = "Player B";
         return new Names(a, b);
     }
 
@@ -38,7 +35,7 @@ public final class NameInputScreen {
         return s.trim().replaceAll("\\s+", " ");
     }
 
-    /** Jedno pole tekstowe: obsługa liter, cyfr, spacji, myślników, backspace, Enter/Esc. */
+    /** Jedno pole tekstowe z walidacją pustego Entera + „AltGr-duble” ogarnięte. */
     private String inputOne(String label, String initial) throws Exception {
         StringBuilder buf = new StringBuilder(initial == null ? "" : initial);
 
@@ -52,8 +49,15 @@ public final class NameInputScreen {
                 return null; // przerwane
             }
             if (kt == KeyType.Enter) {
-                // akceptuj nawet puste – uzupełnimy domyślnie wyżej
-                return buf.toString();
+                String cur = buf.toString();
+                if (cur.isBlank()) {
+                    // pytamy elegancko o domyślną nazwę
+                    String who = label.toLowerCase().contains("gracza 1") ? "Player A" : "Player B";
+                    boolean ok = view.confirm("Pole puste. Ustawić domyślnie \"" + who + "\"?");
+                    if (ok) return who;
+                    else continue; // wróć do edycji
+                }
+                return cur;
             }
             if (kt == KeyType.Backspace) {
                 if (buf.length() > 0) buf.deleteCharAt(buf.length() - 1);
@@ -61,12 +65,16 @@ public final class NameInputScreen {
             }
             if (kt == KeyType.Character) {
                 char c = ks.getCharacter();
-                if ((ks.isAltDown() || (ks.isAltDown() && ks.isCtrlDown()))
-                        && c < 128 && Character.isLetter(c)) {
+
+                // Heurystyka na AltGr: gdy Alt wciśnięty i znak jest ASCII-literą,
+                // zwykle to "fałszywy" event poprzedzający właściwy znak diakrytyczny („l” przed „ł”).
+                if (ks.isAltDown() && c < 128 && Character.isLetter(c)) {
                     continue;
                 }
 
-                if (Character.isLetterOrDigit(c) || c == ' ' || c == '-' || c == '.' || c == '\'') {
+                // Pozwól na Unicode (w tym ąęćłóśżź), cyfry, spację i typowe znaki w nazwiskach.
+                if (!Character.isISOControl(c) &&
+                        (Character.isLetterOrDigit(c) || c == ' ' || c == '-' || c == '.' || c == '\'')) {
                     buf.append(c);
                 }
             }

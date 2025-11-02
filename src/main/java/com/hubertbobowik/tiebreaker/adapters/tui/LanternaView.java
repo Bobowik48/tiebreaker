@@ -15,7 +15,7 @@ import java.io.IOException;
 public final class LanternaView implements AutoCloseable {
 
     // Intencje podczas meczu (litery)
-    public enum UserIntent {POINT_A, POINT_B, UNDO, REDO, QUIT, NONE}
+    public enum UserIntent {POINT_A, POINT_B, UNDO, REDO, FINISH, QUIT, NONE}
 
     // Strzałki/Enter/Esc – do nawigacji w menu/listach
     public enum NavKey {UP, DOWN, LEFT, RIGHT, ENTER, ESC, NONE}
@@ -111,7 +111,7 @@ public final class LanternaView implements AutoCloseable {
         g.putString(2, HELP_ROW,
                 "[A] punkt dla " + firstA +
                         "   [B] punkt dla " + firstB +
-                        "   [U] cofnij   [R] przywróć   [Q] wyjście"
+                        "   [U] cofnij   [R] przywróć   [X] zakończ   [Q] wyjście"
         );
 
         screen.refresh();
@@ -299,6 +299,7 @@ public final class LanternaView implements AutoCloseable {
                 case 'B' -> UserIntent.POINT_B;
                 case 'U' -> UserIntent.UNDO;
                 case 'R' -> UserIntent.REDO;
+                case 'X' -> UserIntent.FINISH;
                 case 'Q' -> UserIntent.QUIT;
                 default -> UserIntent.NONE;
             };

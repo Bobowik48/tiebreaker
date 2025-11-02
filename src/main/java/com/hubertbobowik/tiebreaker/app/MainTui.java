@@ -129,9 +129,7 @@ public final class MainTui {
 
                     case MATCH -> {
                         var result = matchUi.run(activeId);
-                        state = (result == com.hubertbobowik.tiebreaker.adapters.tui.screens.MatchScreen.Result.SHOW_HISTORY)
-                                ? State.HISTORY
-                                : State.MENU;
+                        state = (result == MatchScreen.Result.GO_TO_HISTORY) ? State.HISTORY : State.MENU;
                     }
 
                     case HISTORY -> {

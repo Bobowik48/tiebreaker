@@ -12,6 +12,8 @@ public interface MatchService {
     Match addPoint(MatchId id, int playerIndex);
     Match undo(MatchId id);
     Match redo(MatchId id);
+    Match markFinished(MatchId id);
+    void delete(MatchId id);
     List<Match> getAllMatches();
     List<Match> listFinished();
 }

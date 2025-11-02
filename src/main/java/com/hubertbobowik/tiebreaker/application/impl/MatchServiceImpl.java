@@ -82,6 +82,19 @@ public class MatchServiceImpl implements MatchService {
     }
 
     @Override
+    public Match markFinished(MatchId id) {
+        Match m = getMatch(id);
+        m.finishNow();
+        repo.save(m);
+        return m;
+    }
+
+    @Override
+    public void delete(MatchId id) {
+        repo.delete(id);
+    }
+
+    @Override
     public List<Match> getAllMatches() {
         return repo.findAll();
     }
