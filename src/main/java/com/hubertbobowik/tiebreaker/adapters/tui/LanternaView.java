@@ -104,9 +104,15 @@ public final class LanternaView implements AutoCloseable {
         g.setForegroundColor(TextColor.ANSI.CYAN);
         g.putString(2, SCORE_ROW, "Wynik: ");
 
+        // ▼ nowość: imię (pierwszy token) w promptach
+        String firstA = firstNameOf(m.playerA());
+        String firstB = firstNameOf(m.playerB());
         g.setForegroundColor(TextColor.ANSI.YELLOW);
         g.putString(2, HELP_ROW,
-                "[A] punkt dla A   [B] punkt dla B   [U] cofnij   [R] przywróć   [Q] wyjście");
+                "[A] punkt dla " + firstA +
+                        "   [B] punkt dla " + firstB +
+                        "   [U] cofnij   [R] przywróć   [Q] wyjście"
+        );
 
         screen.refresh();
         staticDrawn = true;
@@ -159,9 +165,18 @@ public final class LanternaView implements AutoCloseable {
     }
 
     public void renderMatchesList(String title, java.util.List<String> lines, int selected) throws IOException {
+        // 🔧 klucz: złap resize zanim policzymy szerokość
+        TerminalSize newSize = screen.doResizeIfNecessary();
+        if (newSize != null && !newSize.equals(lastSize)) {
+            lastSize = newSize;
+            screen.refresh(Screen.RefreshType.COMPLETE);
+        }
+
         fullClear();
+
+        // policz szerokość po ewentualnym resize
         int w = screen.getTerminalSize().getColumns();
-        int usable = Math.max(10, w - 6); // marginesy
+        int usable = Math.max(10, w - 6); // marginesy z lewej/prawej
 
         g.setForegroundColor(TextColor.ANSI.WHITE);
         g.putString(2, 1, title, SGR.BOLD);
@@ -169,12 +184,19 @@ public final class LanternaView implements AutoCloseable {
         for (int i = 0; i < lines.size(); i++) {
             boolean sel = (i == selected);
             g.setForegroundColor(sel ? TextColor.ANSI.GREEN : TextColor.ANSI.WHITE);
-            g.putString(4, 3 + i, (sel ? "› " : "  ") + clip(lines.get(i), usable));
+
+            // clip tylko jeśli naprawdę się nie mieści
+            String text = lines.get(i);
+            String toDraw = (text.length() > usable) ? clip(text, usable) : text;
+
+            g.putString(4, 3 + i, (sel ? "› " : "  ") + toDraw);
         }
+
         g.setForegroundColor(TextColor.ANSI.YELLOW);
         g.putString(2, 3 + lines.size() + 1, "[↑/↓] wybór   [Esc] wstecz");
         screen.refresh();
     }
+
 
     public void renderRulesPicker(
             int focusedSection, int bestOf,
@@ -277,6 +299,10 @@ public final class LanternaView implements AutoCloseable {
         return UserIntent.NONE;
     }
 
+    public com.googlecode.lanterna.input.KeyStroke readRaw() throws IOException {
+        return screen.readInput();
+    }
+
     /**
      * Blokujący odczyt nawigacji (menu/listy).
      */
@@ -294,6 +320,23 @@ public final class LanternaView implements AutoCloseable {
         };
     }
 
+    public void renderInputForm(String title, String label, String value) throws IOException {
+        fullClear();
+        g.setForegroundColor(TextColor.ANSI.WHITE);
+        g.putString(2, 1, title, SGR.BOLD);
+
+        g.setForegroundColor(TextColor.ANSI.CYAN);
+        g.putString(2, 4, label);
+
+        g.setForegroundColor(TextColor.ANSI.WHITE);
+        g.putString(4, 6, padRight(value, Math.max(20, value.length())));
+
+        g.setForegroundColor(TextColor.ANSI.YELLOW);
+        g.putString(2, 9, "[Enter] zatwierdź   [Backspace] usuń   [Esc] wstecz");
+
+        screen.refresh();
+    }
+
     private static String padRight(String s, int len) {
         if (s.length() >= len) return s;
         return s + " ".repeat(len - s.length());
@@ -304,6 +347,13 @@ public final class LanternaView implements AutoCloseable {
         if (s.length() <= max) return s;
         if (max <= 1) return "…";
         return s.substring(0, max - 1) + "…";
+    }
+
+    private static String firstNameOf(String full) {
+        if (full == null || full.isBlank()) return "A";
+        String s = full.trim();
+        int sp = s.indexOf(' ');
+        return sp > 0 ? s.substring(0, sp) : s;
     }
 
     @Override

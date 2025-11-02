@@ -12,6 +12,8 @@ import com.hubertbobowik.tiebreaker.domain.Match;
 import com.hubertbobowik.tiebreaker.domain.MatchId;
 import com.hubertbobowik.tiebreaker.domain.Rules;
 import com.hubertbobowik.tiebreaker.ports.MatchRepository;
+import com.hubertbobowik.tiebreaker.adapters.tui.screens.NameInputScreen;
+import com.hubertbobowik.tiebreaker.adapters.tui.screens.RulesScreen;
 
 public final class MainTui {
     enum State {MENU, MATCH, HISTORY, EXIT}
@@ -64,7 +66,14 @@ public final class MainTui {
                                     break;
                                 }
 
-                                Match created = service.createMatch("Player A", "Player B", picked[0]);
+                                NameInputScreen nameScreen = new NameInputScreen(view);
+                                var names = nameScreen.ask();
+                                if (names == null) {
+                                    state = State.MENU;
+                                    break;
+                                }
+
+                                Match created = service.createMatch(names.a, names.b, picked[0]);
                                 activeId = created.id();
                                 state = State.MATCH;
                             }
