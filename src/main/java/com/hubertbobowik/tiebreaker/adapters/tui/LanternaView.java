@@ -15,9 +15,10 @@ import java.io.IOException;
 public final class LanternaView implements AutoCloseable {
 
     // Intencje podczas meczu (litery)
-    public enum UserIntent { POINT_A, POINT_B, UNDO, REDO, QUIT, NONE }
+    public enum UserIntent {POINT_A, POINT_B, UNDO, REDO, QUIT, NONE}
+
     // Strzałki/Enter/Esc – do nawigacji w menu/listach
-    public enum NavKey { UP, DOWN, ENTER, ESC, NONE }
+    public enum NavKey {UP, DOWN, LEFT, RIGHT, ENTER, ESC, NONE}
 
     private Screen screen;
     private TextGraphics g;
@@ -29,7 +30,7 @@ public final class LanternaView implements AutoCloseable {
     private static final int TITLE_ROW = 1;
     private static final int NAMES_ROW = 3;
     private static final int SCORE_ROW = 5;
-    private static final int HELP_ROW  = 8;
+    private static final int HELP_ROW = 8;
 
     // ── ŻYCIE EKRANU ─────────────────────────────────────────────
 
@@ -45,18 +46,20 @@ public final class LanternaView implements AutoCloseable {
         g = screen.newTextGraphics();
         fullClear();
 
-        lastSize   = screen.getTerminalSize();
+        lastSize = screen.getTerminalSize();
         staticDrawn = false;
     }
 
-    /** Wołaj w pętli – dba o poprawne odrysowanie po resize. */
+    /**
+     * Wołaj w pętli – dba o poprawne odrysowanie po resize.
+     */
     public void checkResizeAndRedraw(Match m) throws IOException {
         TerminalSize newSize = screen.doResizeIfNecessary();
         TerminalSize current = screen.getTerminalSize();
         boolean resized = (newSize != null && !newSize.equals(lastSize)) || !current.equals(lastSize);
 
         if (resized) {
-            lastSize   = current;
+            lastSize = current;
             staticDrawn = false;
             screen.refresh(Screen.RefreshType.COMPLETE);
         }
@@ -76,7 +79,9 @@ public final class LanternaView implements AutoCloseable {
         }
     }
 
-    /** Twarde czyszczenie ekranu (np. przy zmianie ekranu). */
+    /**
+     * Twarde czyszczenie ekranu (np. przy zmianie ekranu).
+     */
     public void fullClear() throws IOException {
         screen.clear();
         screen.refresh(Screen.RefreshType.COMPLETE);
@@ -107,7 +112,9 @@ public final class LanternaView implements AutoCloseable {
         staticDrawn = true;
     }
 
-    /** Aktualizuje wyłącznie linię wyniku (bez migotania). */
+    /**
+     * Aktualizuje wyłącznie linię wyniku (bez migotania).
+     */
     public void renderScoreLine(String line) throws IOException {
         g.setForegroundColor(TextColor.ANSI.CYAN);
         g.putString(2, SCORE_ROW, "Wynik: ");
@@ -116,10 +123,14 @@ public final class LanternaView implements AutoCloseable {
         screen.refresh();
     }
 
-    /** Pasek zwycięzcy po zakończeniu meczu. */
+    /**
+     * Pasek zwycięzcy po zakończeniu meczu.
+     */
     public void renderWinner(String line) throws IOException {
         g.setForegroundColor(TextColor.ANSI.WHITE);
-        g.putString(2, SCORE_ROW + 2, padRight(line + "   [Q] menu", 60), SGR.BOLD);
+        g.putString(2, SCORE_ROW + 2, padRight(line, 60), SGR.BOLD);
+        g.setForegroundColor(TextColor.ANSI.YELLOW);
+        g.putString(2, SCORE_ROW + 3, "[Q] menu   [H] historia   [N] nowy mecz");
         screen.refresh();
     }
 
@@ -154,7 +165,63 @@ public final class LanternaView implements AutoCloseable {
         screen.refresh();
     }
 
-    /** Prosty dialog: Enter = TAK, Esc = NIE. */
+    public void renderRulesPicker(
+            int focusedSection, int bestOf,
+            String everySetLabel, String finalSetLabel,
+            String activeDescription // ⬅️ tylko jeden opis
+    ) throws IOException {
+        fullClear();
+        g.setForegroundColor(TextColor.ANSI.WHITE);
+        g.putString(2, 1, "Wybór zasad", SGR.BOLD);
+
+        drawRow(3, "Best of", String.valueOf(bestOf), focusedSection == 0);
+        drawRow(5, "Tiebreak w setach", everySetLabel, focusedSection == 1);
+        drawRow(7, "Finałowy set", finalSetLabel, focusedSection == 2);
+
+        g.setForegroundColor(TextColor.ANSI.WHITE);
+        g.putString(2, 9, "Opis:", SGR.BOLD);
+
+        // aktywny opis lekko „podkręcamy” kolorem
+        g.setForegroundColor(TextColor.ANSI.GREEN);
+        putWrap(activeDescription, 2, 10, 94);
+
+        g.setForegroundColor(TextColor.ANSI.YELLOW);
+        g.putString(2, 13, "[↑/↓] sekcja   [←/→] wybór   [R] domyślne   [Enter] start   [Esc] wstecz");
+        screen.refresh();
+    }
+
+    private void drawRow(int y, String name, String value, boolean focused) throws IOException {
+        g.setForegroundColor(focused ? TextColor.ANSI.GREEN : TextColor.ANSI.WHITE);
+        String line = String.format("%-18s: %s", name, value);
+        String text = (focused ? "> " : "  ") + line;
+
+        if (focused) {
+            // z atrybutem BOLD
+            g.putString(2, y, text, SGR.BOLD);
+        } else {
+            // bez atrybutów — zwykły overload
+            g.putString(2, y, text);
+        }
+    }
+
+    private void putWrap(String txt, int x, int y, int width) throws IOException {
+        String[] w = txt.split(" ");
+        StringBuilder row = new StringBuilder();
+        int cy = y;
+        for (String s : w) {
+            if (row.length() + s.length() + 1 > width) {
+                g.putString(x, cy++, row.toString());
+                row.setLength(0);
+            }
+            if (row.length() > 0) row.append(' ');
+            row.append(s);
+        }
+        if (row.length() > 0) g.putString(x, cy, row.toString());
+    }
+
+    /**
+     * Prosty dialog: Enter = TAK, Esc = NIE.
+     */
     public boolean confirm(String question) throws IOException {
         fullClear();
         g.setForegroundColor(TextColor.ANSI.WHITE);
@@ -165,18 +232,23 @@ public final class LanternaView implements AutoCloseable {
         while (true) {
             KeyStroke ks = screen.readInput();
             if (ks == null) continue;
-            if (ks.getKeyType() == KeyType.Enter)  return true;
+            if (ks.getKeyType() == KeyType.Enter) return true;
             if (ks.getKeyType() == KeyType.Escape) return false;
         }
     }
 
     // ── WEJŚCIE KLAWIATUROWE ────────────────────────────────────
 
-    /** Nieblokujący odczyt liter dla meczu. */
+    /**
+     * Nieblokujący odczyt liter dla meczu.
+     */
     public UserIntent readIntent() throws IOException {
         KeyStroke ks = screen.pollInput();
         if (ks == null) {
-            try { Thread.sleep(16); } catch (InterruptedException ignored) {}
+            try {
+                Thread.sleep(16);
+            } catch (InterruptedException ignored) {
+            }
             return UserIntent.NONE;
         }
         if (ks.getKeyType() == KeyType.Character) {
@@ -187,23 +259,27 @@ public final class LanternaView implements AutoCloseable {
                 case 'U' -> UserIntent.UNDO;
                 case 'R' -> UserIntent.REDO;
                 case 'Q' -> UserIntent.QUIT;
-                default  -> UserIntent.NONE;
+                default -> UserIntent.NONE;
             };
         }
         if (ks.getKeyType() == KeyType.EOF) return UserIntent.QUIT;
         return UserIntent.NONE;
     }
 
-    /** Blokujący odczyt nawigacji (menu/listy). */
+    /**
+     * Blokujący odczyt nawigacji (menu/listy).
+     */
     public NavKey readKey() throws IOException {
         KeyStroke ks = screen.readInput();
         if (ks == null) return NavKey.NONE;
         return switch (ks.getKeyType()) {
-            case ArrowUp   -> NavKey.UP;
+            case ArrowUp -> NavKey.UP;
             case ArrowDown -> NavKey.DOWN;
-            case Enter     -> NavKey.ENTER;
-            case Escape    -> NavKey.ESC;
-            default        -> NavKey.NONE;
+            case ArrowLeft -> NavKey.LEFT;
+            case ArrowRight -> NavKey.RIGHT;
+            case Enter -> NavKey.ENTER;
+            case Escape -> NavKey.ESC;
+            default -> NavKey.NONE;
         };
     }
 
@@ -216,7 +292,10 @@ public final class LanternaView implements AutoCloseable {
     @Override
     public void close() {
         if (screen != null) {
-            try { screen.stopScreen(); } catch (Exception ignored) {}
+            try {
+                screen.stopScreen();
+            } catch (Exception ignored) {
+            }
         }
     }
 }

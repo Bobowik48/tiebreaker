@@ -5,6 +5,7 @@ import com.hubertbobowik.tiebreaker.adapters.tui.LanternaView;
 import com.hubertbobowik.tiebreaker.adapters.tui.screens.HistoryScreen;
 import com.hubertbobowik.tiebreaker.adapters.tui.screens.MatchScreen;
 import com.hubertbobowik.tiebreaker.adapters.tui.screens.MenuScreen;
+import com.hubertbobowik.tiebreaker.adapters.tui.screens.RulesScreen;
 import com.hubertbobowik.tiebreaker.application.MatchService;
 import com.hubertbobowik.tiebreaker.application.impl.MatchServiceImpl;
 import com.hubertbobowik.tiebreaker.domain.Match;
@@ -25,14 +26,14 @@ public final class MainTui {
         try (LanternaView view = new LanternaView()) {
             view.open();
 
-            var menu = new MenuScreen(view, service, activeId);
+            var menu = new MenuScreen(view, service);
             var matchUi = new MatchScreen(view, service);
             var histUi = new HistoryScreen(view, service);
 
             while (state != State.EXIT) {
                 switch (state) {
                     case MENU -> {
-                        switch (menu.show()) {
+                        switch (menu.show(activeId)) {
                             case CONTINUE -> state = State.MATCH;
                             case NEW_MATCH -> {
                                 Match cur = service.getMatch(activeId);
@@ -40,8 +41,31 @@ public final class MainTui {
                                     state = State.MENU;
                                     break;
                                 }
-                                Match created = service.createMatch("Player A", "Player B");
-                                activeId = created.id();          // <— KLUCZOWE
+
+                                final boolean[] confirmed = {false};
+                                final Rules[] picked = {Rules.defaults()};
+
+                                RulesScreen rs = new RulesScreen(view, new RulesScreen.Callback() {
+                                    @Override
+                                    public void onConfirm(Rules rules) {
+                                        confirmed[0] = true;
+                                        picked[0] = rules;
+                                    }
+
+                                    @Override
+                                    public void onCancel() {
+                                        confirmed[0] = false;
+                                    }
+                                });
+
+                                rs.show();
+                                if (!confirmed[0]) {
+                                    state = State.MENU;
+                                    break;
+                                }
+
+                                Match created = service.createMatch("Player A", "Player B", picked[0]);
+                                activeId = created.id();
                                 state = State.MATCH;
                             }
                             case HISTORY -> state = State.HISTORY;
