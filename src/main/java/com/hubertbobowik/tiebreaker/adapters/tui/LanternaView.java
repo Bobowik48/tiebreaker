@@ -131,7 +131,6 @@ public final class LanternaView implements AutoCloseable {
 
     public void renderElapsed(String text) throws IOException {
         g.setForegroundColor(TextColor.ANSI.WHITE);
-        // pod linią wyniku (SCORE_ROW + 1)
         g.putString(2, SCORE_ROW + 1, padRight(text, 40));
         screen.refresh();
     }
@@ -139,11 +138,21 @@ public final class LanternaView implements AutoCloseable {
     /**
      * Pasek zwycięzcy po zakończeniu meczu.
      */
-    public void renderWinner(String line) throws IOException {
+    public void renderWinnerPanel(String winner) throws IOException {
+        // wyczyść sekcję pod wynikiem (czas, pomoc, stare opcje)
+        clearLine(SCORE_ROW + 1);
+        clearLine(SCORE_ROW + 2);
+        clearLine(SCORE_ROW + 3);
+        clearLine(HELP_ROW);
+
+        // zwycięzca
         g.setForegroundColor(TextColor.ANSI.WHITE);
-        g.putString(2, SCORE_ROW + 2, padRight(line, 60), SGR.BOLD);
+        g.putString(2, SCORE_ROW + 2, padRight("Zwycięzca: " + winner, 60), SGR.BOLD);
+
+        // tylko to, co chcemy: [H] historia, [Q] wyjście
         g.setForegroundColor(TextColor.ANSI.YELLOW);
-        g.putString(2, SCORE_ROW + 3, "[Q] menu   [H] historia   [N] nowy mecz");
+        g.putString(2, SCORE_ROW + 3, padRight("[H] historia    [Q] wyjście", 60));
+
         screen.refresh();
     }
 
@@ -196,7 +205,6 @@ public final class LanternaView implements AutoCloseable {
         g.putString(2, 3 + lines.size() + 1, "[↑/↓] wybór   [Esc] wstecz");
         screen.refresh();
     }
-
 
     public void renderRulesPicker(
             int focusedSection, int bestOf,
@@ -337,6 +345,12 @@ public final class LanternaView implements AutoCloseable {
         screen.refresh();
     }
 
+    public void renderServer(String line) throws IOException {
+        g.setForegroundColor(TextColor.ANSI.WHITE);
+        g.putString(2, SCORE_ROW + 2, padRight(line, 50));
+        screen.refresh();
+    }
+
     private static String padRight(String s, int len) {
         if (s.length() >= len) return s;
         return s + " ".repeat(len - s.length());
@@ -354,6 +368,12 @@ public final class LanternaView implements AutoCloseable {
         String s = full.trim();
         int sp = s.indexOf(' ');
         return sp > 0 ? s.substring(0, sp) : s;
+    }
+
+    private void clearLine(int y) throws IOException {
+        int w = screen.getTerminalSize().getColumns();
+        g.setForegroundColor(TextColor.ANSI.DEFAULT);
+        g.putString(0, y, " ".repeat(Math.max(0, w)));
     }
 
     @Override

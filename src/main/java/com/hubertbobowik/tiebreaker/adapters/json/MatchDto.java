@@ -29,7 +29,12 @@ public final class MatchDto {
     public final boolean finished;
     public final Integer winner; // 0/1 lub null
 
-    // Czasy (ISO-8601), mogą nie istnieć w starych plikach
+    // Serwis
+    public final int startingServer;
+    public final int currentServer;
+    public final int startingServerOfSet;
+
+    // Czasy (ISO-8601)
     public final String createdAt;   // np. "2025-11-02T19:45:31Z"
     public final String finishedAt;  // null lub ISO-8601
 
@@ -54,6 +59,9 @@ public final class MatchDto {
             @JsonProperty("tbB") int tbB,
             @JsonProperty("finished") boolean finished,
             @JsonProperty("winner") Integer winner,
+            @JsonProperty("startingServer") int startingServer,
+            @JsonProperty("currentServer") int currentServer,
+            @JsonProperty("startingServerOfSet") int startingServerOfSet,
             @JsonProperty("createdAt") String createdAt,
             @JsonProperty("finishedAt") String finishedAt
     ) {
@@ -76,6 +84,9 @@ public final class MatchDto {
         this.tbB = tbB;
         this.finished = finished;
         this.winner = winner;
+        this.startingServer = startingServer;
+        this.currentServer = currentServer;
+        this.startingServerOfSet = startingServerOfSet;
         this.createdAt = createdAt;
         this.finishedAt = finishedAt;
     }
@@ -98,6 +109,9 @@ public final class MatchDto {
                 g.tbA(), g.tbB(),
                 m.isFinished(),
                 m.winner(),
+                m.startingServer(),          // <<< serwis do JSON
+                m.currentServer(),
+                m.startingServerOfSet(),
                 m.createdAt() != null ? m.createdAt().toString() : null,
                 m.finishedAt() != null ? m.finishedAt().toString() : null
         );
@@ -110,13 +124,12 @@ public final class MatchDto {
                 Rules.TieBreakMode.valueOf(tbFinalSet)
         );
 
-        // createdAt może być null w starych plikach -> fallback na teraz
         Instant created = (createdAt != null) ? Instant.parse(createdAt) : Instant.now();
 
         Match m = new Match(new MatchId(id), playerA, playerB, r, created);
         GameScore gs = new GameScore(tieBreak, tbTarget, stepsA, stepsB, adv, tbA, tbB);
         m = m.restore(setsA, setsB, gamesA, gamesB, gs, finished, winner);
-
+        m.restoreServing(startingServer, currentServer, startingServerOfSet);
         if (finishedAt != null) {
             m.setFinishedAtFromStorage(Instant.parse(finishedAt));
         }

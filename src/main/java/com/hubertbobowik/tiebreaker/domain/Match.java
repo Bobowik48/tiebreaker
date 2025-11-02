@@ -10,13 +10,19 @@ public class Match {
     private final String playerB;
     private final Rules rules;
 
+    // ### Serving ###
+    // 0 = A, 1 = B
+    private int startingServer = 0;        // kto zaczyna mecz
+    private int currentServer = 0;         // kto serwuje w bieżącym gemie
+    private int startingServerOfSet = 0;   // kto zaczął bieżący set
+
     // ### Timestamps ###
     private final Instant createdAt;
     private Instant finishedAt; // null = trwa
 
     // ### Score state ###
     private int gamesA = 0, gamesB = 0;   // bieżący set
-    private int setsA = 0, setsB = 0;   // całe sety
+    private int setsA = 0, setsB = 0;     // całe sety
     private GameScore game = new GameScore(false, 0);
 
     // ### Status ###
@@ -32,9 +38,7 @@ public class Match {
         this(id, playerA, playerB, rules, Instant.now());
     }
 
-    /**
-     * Pomocniczy konstruktor używany przy odtwarzaniu ze storage.
-     */
+    /** Pomocniczy konstruktor używany przy odtwarzaniu ze storage. */
     public Match(MatchId id, String playerA, String playerB, Rules rules, Instant createdAt) {
         this.id = id;
         this.playerA = playerA;
@@ -51,9 +55,27 @@ public class Match {
 
         if (game.isFinished()) {
             int w = game.winner();
-            if (w == 0) gamesA++;
-            else gamesB++;
+            if (w == 0) gamesA++; else gamesB++;
+
+            // Czy po tym gemie zamkniemy set lub wejdziemy w TB?
+            boolean finalSet = isFinalSetIncoming();
+            boolean willPlayTB =
+                    (gamesA == 6 && gamesB == 6) &&
+                            (finalSet ? rules.finalSetMode() != Rules.TieBreakMode.NONE
+                                    : rules.tieBreakEverySet() != Rules.TieBreakMode.NONE);
+
+            boolean setWillCloseNow =
+                    ((gamesA >= 6 || gamesB >= 6) && Math.abs(gamesA - gamesB) >= 2) ||
+                            ((gamesA == 7 && gamesB == 6) || (gamesB == 7 && gamesA == 6));
+
+            // Standard ATP: rotacja serwującego po KAŻDYM gemie,
+            // chyba że właśnie zamykamy set albo wchodzimy w TB.
+            if (!willPlayTB && !setWillCloseNow) {
+                currentServer ^= 1;
+            }
+
             afterGameMaybeEndSet();
+
             if (!finished) startNextGameOrTieBreak();
         }
     }
@@ -63,7 +85,14 @@ public class Match {
         boolean finalSet = isFinalSetIncoming();
         boolean doTB = shouldPlayTieBreak(finalSet);
         int target = doTB ? (finalSet ? tbTargetForFinal() : tbTargetCommon()) : 0;
+
         game = new GameScore(doTB, target);
+
+        if (!doTB && gamesA + gamesB == 0) {
+            // pierwszy gem nowego seta zaczyna startingServerOfSet
+            currentServer = startingServerOfSet;
+        }
+        // w TB serwujący liczony jest dynamicznie w serverInTieBreak()
     }
 
     private void afterGameMaybeEndSet() {
@@ -77,10 +106,15 @@ public class Match {
     }
 
     private void awardSetTo(int who) {
-        if (who == 0) setsA++;
-        else setsB++;
-        gamesA = gamesB = 0;       // nowy set
+        if (who == 0) setsA++; else setsB++;
+
+        // nowy set
+        gamesA = gamesB = 0;
         game = new GameScore(false, 0);
+
+        // kolejny set zacznie przeciwnik względem poprzedniego startera seta
+        startingServerOfSet ^= 1;
+        currentServer = startingServerOfSet;
 
         int need = rules.bestOf() / 2 + 1; // 2 dla BO3, 3 dla BO5
         if (setsA >= need || setsB >= need) {
@@ -129,57 +163,25 @@ public class Match {
                 game.displayA() + " : " + game.displayB() + (game.isTieBreak() ? " (TB)" : "");
     }
 
-    // ### Accessors ###
-    public MatchId id() {
-        return id;
+    /** Ustaw startera meczu. Wołaj tuż po utworzeniu meczu. */
+    public void setStartingServer(int s) {
+        this.startingServer = (s == 0) ? 0 : 1;
+        this.currentServer = this.startingServer;
+        this.startingServerOfSet = this.startingServer;
     }
 
-    public String playerA() {
-        return playerA;
+    /** Kto powinien być pokazany jako serwujący aktualnie w UI. */
+    public int currentServerForDisplay() {
+        return game.isTieBreak() ? serverInTieBreak() : currentServer;
     }
 
-    public String playerB() {
-        return playerB;
-    }
-
-    public Rules rules() {
-        return rules;
-    }
-
-    public int gamesA() {
-        return gamesA;
-    }
-
-    public int gamesB() {
-        return gamesB;
-    }
-
-    public int setsA() {
-        return setsA;
-    }
-
-    public int setsB() {
-        return setsB;
-    }
-
-    public GameScore game() {
-        return game;
-    }
-
-    public boolean isFinished() {
-        return finished;
-    }
-
-    public Integer winner() {
-        return winner;
-    }
-
-    public Instant createdAt() {
-        return createdAt;
-    }
-
-    public Instant finishedAt() {
-        return finishedAt;
+    /** Serwujący w TB: pierwszy punkt starter seta, dalej bloki 2-punktowe. */
+    public int serverInTieBreak() {
+        int total = game.tbA() + game.tbB();
+        int s = startingServerOfSet;
+        if (total == 0) return s;
+        int block = (total - 1) / 2;
+        return (block % 2 == 0) ? (s ^ 1) : s;
     }
 
     public Duration elapsed() {
@@ -187,11 +189,28 @@ public class Match {
         return Duration.between(createdAt, end);
     }
 
-    // ### Copy & restore ###
+    // ### Accessors ###
+    public MatchId id() { return id; }
+    public String playerA() { return playerA; }
+    public String playerB() { return playerB; }
+    public Rules rules() { return rules; }
+    public int gamesA() { return gamesA; }
+    public int gamesB() { return gamesB; }
+    public int setsA() { return setsA; }
+    public int setsB() { return setsB; }
+    public GameScore game() { return game; }
+    public boolean isFinished() { return finished; }
+    public Integer winner() { return winner; }
+    public Instant createdAt() { return createdAt; }
+    public Instant finishedAt() { return finishedAt; }
 
-    /**
-     * Głęboki klon — do undo/redo.
-     */
+    // Gettery serwisu BEZ prefiksu get
+    public int startingServer() { return startingServer; }
+    public int currentServer() { return currentServer; }
+    public int startingServerOfSet() { return startingServerOfSet; }
+
+    // ### Copy & restore ###
+    /** Głęboki klon — do undo/redo. */
     public Match copy() {
         Match c = new Match(this.id, this.playerA, this.playerB, this.rules, this.createdAt);
         c.gamesA = this.gamesA;
@@ -201,6 +220,10 @@ public class Match {
         c.finished = this.finished;
         c.winner = this.winner;
         c.finishedAt = this.finishedAt;
+
+        c.startingServer = this.startingServer;
+        c.currentServer = this.currentServer;
+        c.startingServerOfSet = this.startingServerOfSet;
 
         GameScore g = this.game;
         c.game = new GameScore(
@@ -212,9 +235,7 @@ public class Match {
         return c;
     }
 
-    /**
-     * Przywrócenie stanu punktacji (bez czasów).
-     */
+    /** Przywrócenie stanu punktacji. */
     public Match restore(int setsA, int setsB, int gamesA, int gamesB,
                          GameScore game, boolean finished, Integer winner) {
         this.setsA = setsA;
@@ -227,9 +248,15 @@ public class Match {
         return this;
     }
 
-    /**
-     * Tylko dla DTO: ustaw finiš z pliku.
-     */
+    /** Przywrócenie pól serwisu ze storage. */
+    public Match restoreServing(int startingServer, int currentServer, int startingServerOfSet) {
+        this.startingServer = (startingServer == 0) ? 0 : 1;
+        this.currentServer = (currentServer == 0) ? 0 : 1;
+        this.startingServerOfSet = (startingServerOfSet == 0) ? 0 : 1;
+        return this;
+    }
+
+    /** Tylko dla DTO: ustaw finish z pliku. */
     public Match setFinishedAtFromStorage(Instant finishedAt) {
         this.finishedAt = finishedAt;
         this.finished = finishedAt != null;
