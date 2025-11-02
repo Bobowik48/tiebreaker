@@ -31,12 +31,15 @@ public final class HistoryScreen {
             String ts = TS.format(m.createdAt());
             String who = (m.winner() == null) ? "brak zwycięzcy"
                     : (m.winner() == 0 ? m.playerA() : m.playerB());
+            String sets = m.setsA() + "–" + m.setsB();
+            String format = "BO" + m.rules().bestOf();
             Duration d = m.elapsed();
             long h = d.toHours();
             long mm = d.toMinutesPart();
             String dur = (h > 0) ? String.format("%d:%02d", h, mm) : String.format("%02d min", mm);
-            return String.format("[%s]  %s vs %s  —  Winner: %s  —  %s",
-                    ts, m.playerA(), m.playerB(), who, dur);
+
+            return String.format("[%s]  %s vs %s  —  Zwycięzca: %s  —  Sety: %s (%s) Czas: %s",
+                    ts, m.playerA(), m.playerB(), who, sets, format, dur);
         }).toList();
 
         if (lines.isEmpty()) {

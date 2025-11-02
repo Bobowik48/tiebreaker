@@ -36,7 +36,7 @@ public final class LanternaView implements AutoCloseable {
 
     public void open() throws IOException {
         DefaultTerminalFactory factory = new DefaultTerminalFactory()
-                .setInitialTerminalSize(new TerminalSize(100, 30))
+                .setInitialTerminalSize(new TerminalSize(120, 30))
                 .setPreferTerminalEmulator(true); // stabilniej na Win/Mac
 
         screen = factory.createScreen();
