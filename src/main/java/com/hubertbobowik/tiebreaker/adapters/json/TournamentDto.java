@@ -17,6 +17,9 @@ public final class TournamentDto {
     public final boolean finished;
     public final String createdAt;
     public final String finishedAt;
+    public final int bestOf;
+    public final String tbEverySet;  // "NONE" | "CLASSIC7" | "TB10"
+    public final String tbFinalSet;  // j.w.
 
     public final List<List<PairDto>> rounds;
 
@@ -59,7 +62,10 @@ public final class TournamentDto {
             @JsonProperty("finished") boolean finished,
             @JsonProperty("createdAt") String createdAt,
             @JsonProperty("finishedAt") String finishedAt,
-            @JsonProperty("rounds") List<List<PairDto>> rounds
+            @JsonProperty("rounds") List<List<PairDto>> rounds,
+            @JsonProperty("bestOf") Integer bestOf,
+            @JsonProperty("tbEverySet") String tbEverySet,
+            @JsonProperty("tbFinalSet") String tbFinalSet
     ) {
         this.id = id;
         this.size = size;
@@ -70,6 +76,9 @@ public final class TournamentDto {
         this.createdAt = createdAt;
         this.finishedAt = finishedAt;
         this.rounds = rounds;
+        this.bestOf = (bestOf != null) ? bestOf : 3;
+        this.tbEverySet = (tbEverySet != null) ? tbEverySet : Rules.TieBreakMode.CLASSIC7.name();
+        this.tbFinalSet = (tbFinalSet != null) ? tbFinalSet : Rules.TieBreakMode.CLASSIC7.name();
     }
 
     public static TournamentDto fromDomain(Tournament t) {
@@ -82,6 +91,8 @@ public final class TournamentDto {
             rs.add(ps);
         }
 
+        Rules r = t.rules();
+
         return new TournamentDto(
                 t.id().value(),
                 t.size(),
@@ -91,15 +102,25 @@ public final class TournamentDto {
                 t.isFinished(),
                 t.createdAt().toString(),
                 t.finishedAt() != null ? t.finishedAt().toString() : null,
-                rs
+                rs,
+                r.bestOf(),
+                r.tieBreakEverySet().name(),
+                r.finalSetMode().name()
         );
     }
 
     public Tournament toDomain() {
+        Rules rules = new Rules(
+                bestOf,
+                Rules.TieBreakMode.valueOf(tbEverySet),
+                Rules.TieBreakMode.valueOf(tbFinalSet)
+        );
+
         Tournament t = new Tournament(
                 new TournamentId(id),
                 size,
-                players
+                players,
+                rules
         );
 
         // zbuduj od nowa rundy z DTO
@@ -118,7 +139,6 @@ public final class TournamentDto {
             roundList.add(new BracketRound(ps));
         }
 
-        // zamiast refleksji:
         t.replaceRounds(roundList);
 
         t.restoreProgress(

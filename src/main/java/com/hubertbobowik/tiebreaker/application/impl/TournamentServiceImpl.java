@@ -18,8 +18,16 @@ public class TournamentServiceImpl implements TournamentService {
     }
 
     @Override
+    @Deprecated
     public Tournament create(int size, List<String> players) {
         Tournament t = new Tournament(new TournamentId("T-" + System.currentTimeMillis()), size, players);
+        repo.save(t);
+        return t;
+    }
+
+    @Override
+    public Tournament create(int size, List<String> players, Rules rules) {
+        Tournament t = new Tournament(new TournamentId("T-" + System.currentTimeMillis()), size, players, rules);
         repo.save(t);
         return t;
     }
@@ -45,17 +53,15 @@ public class TournamentServiceImpl implements TournamentService {
     }
 
     @Override
-    public MatchId ensureCurrentMatch(TournamentId tid, Rules rules) {
+    public MatchId ensureCurrentMatch(TournamentId tid) {
         Tournament t = get(tid);
         BracketPair p = t.currentPairObj();
         if (p == null) return null;
 
-        if (p.matchId() != null) {
-            return p.matchId();
-        }
+        if (p.matchId() != null) return p.matchId();
 
         MatchId mid = new MatchId("M-" + System.currentTimeMillis());
-        Match m = matchService.createMatch(p.a(), p.b(), rules, mid);
+        matchService.createMatch(p.a(), p.b(), t.rules(), mid);  // KLUCZ
         t.setCurrentPairMatch(mid);
         repo.save(t);
         return mid;

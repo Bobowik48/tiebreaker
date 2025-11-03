@@ -51,9 +51,9 @@ public final class JsonMatchRepository implements MatchRepository {
 
     @Override
     public void delete(MatchId id) {
-        var all = findAll();
-        all.removeIf(m -> m.id().equals(id));
-        writeAllMatches(all);
+        MatchStore store = readStore();
+        store.matches.remove(id.value());
+        writeStore(store);
     }
 
 

@@ -1,9 +1,9 @@
+// File: src/main/java/com/hubertbobowik/tiebreaker/adapters/tui/screens/TournamentMenuScreen.java
 package com.hubertbobowik.tiebreaker.adapters.tui.screens;
 
 import com.hubertbobowik.tiebreaker.adapters.tui.LanternaView;
 import com.hubertbobowik.tiebreaker.application.TournamentService;
 import com.hubertbobowik.tiebreaker.domain.MatchId;
-import com.hubertbobowik.tiebreaker.domain.Rules;
 import com.hubertbobowik.tiebreaker.domain.Tournament;
 import com.hubertbobowik.tiebreaker.domain.TournamentId;
 
@@ -33,7 +33,7 @@ public final class TournamentMenuScreen {
         this.tournamentService = tournamentService;
     }
 
-    public Result show(TournamentId tid, Rules rules) throws Exception {
+    public Result show(TournamentId tid) throws Exception {
         Tournament t = tournamentService.get(tid);
 
         int cursor = 0;
@@ -61,7 +61,7 @@ public final class TournamentMenuScreen {
                         if (t.isFinished()) {
                             return Result.bracket();
                         }
-                        MatchId mid = tournamentService.ensureCurrentMatch(tid, rules);
+                        MatchId mid = tournamentService.ensureCurrentMatch(tid); // zasady brane z turnieju
                         return Result.start(mid);
                     } else if (cursor == 1) {
                         return Result.bracket();

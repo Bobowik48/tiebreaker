@@ -25,6 +25,22 @@ public final class Rules {
         return finalSetMode;
     }
 
+    public String label() {
+        return "BO" + bestOf + ", TB:" + modeLabel(tieBreakEverySet) + ", Final:" + modeLabel(finalSetMode);
+    }
+
+    private String modeLabel(TieBreakMode m) {
+        return switch (m) {
+            case NONE -> "none";
+            case CLASSIC7 -> "7";
+            case TB10 -> "10";
+        };
+    }
+
+    public static Rules copy(Rules r) {
+        return new Rules(r.bestOf, r.tieBreakEverySet, r.finalSetMode);
+    }
+
     public static Rules defaults() {
         return new Rules(3, TieBreakMode.CLASSIC7, TieBreakMode.CLASSIC7);
     }

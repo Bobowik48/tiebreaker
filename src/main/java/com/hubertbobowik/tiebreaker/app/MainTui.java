@@ -189,7 +189,7 @@ public final class MainTui {
                     }
 
                     case TOURNAMENT_MENU -> {
-                        var r = tourMenuUi.show(activeTournamentId, lastPickedRules);
+                        var r = tourMenuUi.show(activeTournamentId);
 
                         switch (r.action()) {
                             case START_MATCH -> {

@@ -9,7 +9,8 @@ import java.util.Random;
 public final class Tournament {
     private final TournamentId id;
     private final int size;                 // 4/8/16/32...
-    private final List<String> players;     // kolejność po losowaniu
+    private final List<String> players;
+    private final Rules rules;
     private final List<BracketRound> rounds = new ArrayList<>();
 
     private int currentRound = 0;           // indeks rundy
@@ -18,7 +19,7 @@ public final class Tournament {
     private Instant finishedAt;
     private boolean finished = false;
 
-    public Tournament(TournamentId id, int size, List<String> players) {
+    public Tournament(TournamentId id, int size, List<String> players, Rules rules) {
         if (size <= 1 || (size & (size - 1)) != 0) {
             throw new IllegalArgumentException("Size must be power of two (>= 2)");
         }
@@ -28,9 +29,14 @@ public final class Tournament {
         this.id = id;
         this.size = size;
         this.players = new ArrayList<>(players);
+        this.rules = Rules.copy(rules);
         this.createdAt = Instant.now();
-        // Pierwsza runda z aktualnej kolejności
         buildInitialRound();
+    }
+
+    @Deprecated
+    public Tournament(TournamentId id, int size, List<String> players) {
+        this(id, size, players, Rules.defaults()); // deleguje do nowego
     }
 
     private void buildInitialRound() {
@@ -56,6 +62,10 @@ public final class Tournament {
 
     public List<String> players() {
         return Collections.unmodifiableList(players);
+    }
+
+    public Rules rules() {
+        return rules;
     }
 
     public List<BracketRound> rounds() {

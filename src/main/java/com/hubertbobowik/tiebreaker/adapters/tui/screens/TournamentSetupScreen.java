@@ -1,9 +1,11 @@
+// File: src/main/java/com/hubertbobowik/tiebreaker/adapters/tui/screens/TournamentSetupScreen.java
 package com.hubertbobowik.tiebreaker.adapters.tui.screens;
 
 import com.googlecode.lanterna.input.KeyStroke;
 import com.googlecode.lanterna.input.KeyType;
 import com.hubertbobowik.tiebreaker.adapters.tui.LanternaView;
 import com.hubertbobowik.tiebreaker.application.TournamentService;
+import com.hubertbobowik.tiebreaker.domain.Rules;
 import com.hubertbobowik.tiebreaker.domain.Tournament;
 import com.hubertbobowik.tiebreaker.domain.TournamentId;
 
@@ -31,46 +33,129 @@ public final class TournamentSetupScreen {
     public Result show() throws Exception {
         int[] sizes = new int[]{4, 8, 16, 32};
         int idx = 0;
+        int cursor = 0; // 0 = size, 1 = rules, 2 = confirm, 3 = back
+
+        // Presety zasad do szybkiego przełączania strzałkami
+        Rules[] presets = new Rules[]{
+                new Rules(3, Rules.TieBreakMode.CLASSIC7, Rules.TieBreakMode.CLASSIC7), // BO3, TB7 wszędzie
+                new Rules(5, Rules.TieBreakMode.CLASSIC7, Rules.TieBreakMode.CLASSIC7), // BO5, TB7 wszędzie
+                new Rules(3, Rules.TieBreakMode.CLASSIC7, Rules.TieBreakMode.NONE),     // BO3, TB7 w setach, brak TB w finale
+                new Rules(3, Rules.TieBreakMode.NONE, Rules.TieBreakMode.TB10),         // BO3, brak TB w setach, superTB10 w finale
+        };
+        int rulesIdx = 0;
+
+        Rules pickedRules = presets[rulesIdx];
 
         while (true) {
+            String[] options = new String[]{
+                    "Rozmiar drabinki: " + sizes[idx],
+                    "Zasady: " + pickedRules.label(),
+                    "Zatwierdź (Enter)",
+                    "Wstecz (Esc)"
+            };
+
             view.renderSimpleMenu(
                     "NOWY TURNIEJ — ROZMIAR",
-                    new String[]{
-                            "Rozmiar drabinki: " + sizes[idx],
-                            "Zatwierdź (Enter)",
-                            "Wstecz (Esc)"
-                    },
-                    0
+                    options,
+                    cursor
             );
 
-            var key = view.readKey();
-            switch (key) {
-                case UP -> idx = (idx + sizes.length - 1) % sizes.length;
-                case DOWN -> idx = (idx + 1) % sizes.length;
-                case ENTER -> {
-                    int size = sizes[idx];
+            KeyStroke key = view.readRaw();
+            if (key == null) {
+                continue;
+            }
 
-                    // 2) imiona
-                    List<String> names = inputNames(size);
-                    if (names == null) return Result.CANCELLED;
+            switch (key.getKeyType()) {
+                case ArrowUp -> cursor = (cursor + 3) % 4;
+                case ArrowDown -> cursor = (cursor + 1) % 4;
 
-                    // 3) utworzenie turnieju + podgląd/losowanie/zatwierdzenie
-                    Tournament t = tournamentService.create(size, names);
-                    while (true) {
-                        Tournament maybe = previewAndControls(t);
-                        if (maybe == null) return Result.CANCELLED;
-                        t = maybe; // tylko po Enter
-                        t.confirmSeeding();
-                        tournamentService.save(t);
-                        return new Result(t.id(), false);
+                case ArrowLeft -> {
+                    if (cursor == 0) {
+                        idx = (idx + sizes.length - 1) % sizes.length;
+                    } else if (cursor == 1) {
+                        rulesIdx = (rulesIdx + presets.length - 1) % presets.length;
+                        pickedRules = presets[rulesIdx];
                     }
                 }
-                case ESC -> {
+                case ArrowRight -> {
+                    if (cursor == 0) {
+                        idx = (idx + 1) % sizes.length;
+                    } else if (cursor == 1) {
+                        rulesIdx = (rulesIdx + 1) % presets.length;
+                        pickedRules = presets[rulesIdx];
+                    }
+                }
+
+                case Enter -> {
+                    if (cursor == 0) {
+                        // nic – rozmiar zmieniamy strzałkami
+                    } else if (cursor == 1) {
+                        // Szczegółowa edycja zasad na osobnym ekranie
+                        final java.util.concurrent.atomic.AtomicBoolean confirmed =
+                                new java.util.concurrent.atomic.AtomicBoolean(false);
+                        final java.util.concurrent.atomic.AtomicReference<Rules> tempRules =
+                                new java.util.concurrent.atomic.AtomicReference<>(pickedRules);
+
+                        RulesScreen rs = new RulesScreen(view, new RulesScreen.Callback() {
+                            @Override
+                            public void onConfirm(Rules rules) {
+                                confirmed.set(true);
+                                tempRules.set(Rules.copy(rules));
+                            }
+
+                            @Override
+                            public void onCancel() { }
+                        });
+
+                        rs.show();
+
+                        if (confirmed.get()) {
+                            pickedRules = tempRules.get();
+                            rulesIdx = nearestPresetIndex(presets, pickedRules);
+                        }
+                    } else if (cursor == 2) {
+                        int size = sizes[idx];
+
+                        List<String> names = inputNames(size);
+                        if (names == null) {
+                            return Result.CANCELLED;
+                        }
+
+                        // Stwórz turniej z wybranymi zasadami
+                        Tournament t = tournamentService.create(size, names, pickedRules);
+
+                        while (true) {
+                            Tournament maybe = previewAndControls(t);
+                            if (maybe == null) {
+                                return Result.CANCELLED;
+                            }
+                            t = maybe;
+                            t.confirmSeeding();
+                            tournamentService.save(t);
+                            return new Result(t.id(), false);
+                        }
+                    } else if (cursor == 3) {
+                        return Result.CANCELLED;
+                    }
+                }
+
+                case Escape -> {
                     return Result.CANCELLED;
                 }
-                default -> { /* ignore */ }
             }
         }
+    }
+
+    private int nearestPresetIndex(Rules[] presets, Rules picked) {
+        for (int i = 0; i < presets.length; i++) {
+            Rules r = presets[i];
+            if (r.bestOf() == picked.bestOf()
+                    && r.tieBreakEverySet() == picked.tieBreakEverySet()
+                    && r.finalSetMode() == picked.finalSetMode()) {
+                return i;
+            }
+        }
+        return 0;
     }
 
     private List<String> inputNames(int size) throws Exception {
@@ -123,12 +208,12 @@ public final class TournamentSetupScreen {
                 char c = Character.toUpperCase(ks.getCharacter());
                 if (c == 'R') {
                     t.shuffle();
-                    continue; // PRZEŁÓŻ render jeszcze raz, bez finalizacji
+                    continue; // odśwież render
                 }
                 if (c == 'E') {
                     List<String> edited = inputNames(t.size());
                     if (edited == null) return null;
-                    Tournament tmp = tournamentService.create(t.size(), edited);
+                    Tournament tmp = tournamentService.create(t.size(), edited, t.rules());
                     tournamentService.delete(t.id());
                     tournamentService.save(tmp);
                     t = tmp;   // podmień i renderuj od nowa
