@@ -3,8 +3,8 @@ package com.hubertbobowik.tiebreaker.domain;
 import java.util.Objects;
 
 public final class BracketPair {
-    private final String a;
-    private final String b;
+    private String a;              // ← już nie final: musimy móc wstawić zwycięzcę do next round
+    private String b;              // ← jw.
     private MatchId matchId;       // ustawiane, gdy odpalimy mecz pary
     private Integer winner;        // 0 = a, 1 = b, null = nierozstrzygnięte
 
@@ -16,36 +16,21 @@ public final class BracketPair {
         this.a = a;
         this.b = b;
         this.matchId = matchId;
+        if (winner != null && winner != 0 && winner != 1) {
+            throw new IllegalArgumentException("Winner must be 0 or 1");
+        }
         this.winner = winner;
     }
 
-    public String a() {
-        return a;
-    }
+    public String a() { return a; }
+    public String b() { return b; }
+    public MatchId matchId() { return matchId; }
+    public Integer winner() { return winner; }
 
-    public String b() {
-        return b;
-    }
+    public boolean hasMatch() { return matchId != null; }
+    public boolean isDone() { return winner != null; }
 
-    public MatchId matchId() {
-        return matchId;
-    }
-
-    public Integer winner() {
-        return winner;
-    }
-
-    public boolean hasMatch() {
-        return matchId != null;
-    }
-
-    public boolean isDone() {
-        return winner != null;
-    }
-
-    public void setMatchId(MatchId matchId) {
-        this.matchId = matchId;
-    }
+    public void setMatchId(MatchId matchId) { this.matchId = matchId; }
 
     public void setWinner(Integer winner) {
         if (winner != null && winner != 0 && winner != 1) {
@@ -53,6 +38,20 @@ public final class BracketPair {
         }
         this.winner = winner;
     }
+
+    /** Wygodny alias: wymusza 0/1. */
+    public void markWinner(int idx) {
+        if (idx != 0 && idx != 1) {
+            throw new IllegalArgumentException("Winner must be 0 or 1");
+        }
+        this.winner = idx;
+    }
+
+    /** Potrzebne do natychmiastowego uzupełniania kolejnej rundy. */
+    public void setA(String a) { this.a = a; }
+
+    /** Potrzebne do natychmiastowego uzupełniania kolejnej rundy. */
+    public void setB(String b) { this.b = b; }
 
     public String winnerName() {
         if (winner == null) return null;

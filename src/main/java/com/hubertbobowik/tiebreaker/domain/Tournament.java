@@ -31,88 +31,70 @@ public final class Tournament {
         this.players = new ArrayList<>(players);
         this.rules = Rules.copy(rules);
         this.createdAt = Instant.now();
-        buildInitialRound();
+
+        buildAllRounds();            // ← prebuduj wszystkie rundy
+        moveCursorToFirstPlayable(); // ← ustaw kursor na pierwszy grywalny mecz
     }
 
     @Deprecated
     public Tournament(TournamentId id, int size, List<String> players) {
-        this(id, size, players, Rules.defaults()); // deleguje do nowego
+        this(id, size, players, Rules.defaults());
     }
 
-    private void buildInitialRound() {
+    /** Prebuduj całą drabinkę: runda 0 z graczami, kolejne rundy z pustymi slotami (null,null). */
+    private void buildAllRounds() {
         rounds.clear();
-        List<BracketPair> pairs = new ArrayList<>();
+
+        // Runda 0 – z graczami
+        List<BracketPair> r0 = new ArrayList<>();
         for (int i = 0; i < players.size(); i += 2) {
-            pairs.add(new BracketPair(players.get(i), players.get(i + 1)));
+            r0.add(new BracketPair(players.get(i), players.get(i + 1)));
         }
-        rounds.add(new BracketRound(pairs));
+        rounds.add(new BracketRound(r0));
+
+        // Kolejne rundy – puste sloty, które będziemy uzupełniać zwycięzcami
+        int pairs = players.size() / 4; // w następnej rundzie połowa par
+        while (pairs >= 1) {
+            List<BracketPair> rs = new ArrayList<>(pairs);
+            for (int i = 0; i < pairs; i++) {
+                rs.add(new BracketPair(null, null));
+            }
+            rounds.add(new BracketRound(rs));
+            pairs /= 2;
+        }
+
         currentRound = 0;
         currentPair = 0;
         finished = false;
         finishedAt = null;
     }
 
-    public TournamentId id() {
-        return id;
-    }
+    public TournamentId id() { return id; }
+    public int size() { return size; }
+    public List<String> players() { return Collections.unmodifiableList(players); }
+    public Rules rules() { return rules; }
+    public List<BracketRound> rounds() { return Collections.unmodifiableList(rounds); }
+    public int currentRound() { return currentRound; }
+    public int currentPair() { return currentPair; }
+    public Instant createdAt() { return createdAt; }
+    public Instant finishedAt() { return finishedAt; }
+    public boolean isFinished() { return finished; }
 
-    public int size() {
-        return size;
-    }
-
-    public List<String> players() {
-        return Collections.unmodifiableList(players);
-    }
-
-    public Rules rules() {
-        return rules;
-    }
-
-    public List<BracketRound> rounds() {
-        return Collections.unmodifiableList(rounds);
-    }
-
-    public int currentRound() {
-        return currentRound;
-    }
-
-    public int currentPair() {
-        return currentPair;
-    }
-
-    public Instant createdAt() {
-        return createdAt;
-    }
-
-    public Instant finishedAt() {
-        return finishedAt;
-    }
-
-    public boolean isFinished() {
-        return finished;
-    }
-
-    /**
-     * Losuje kolejność graczy w drabince (przed zatwierdzeniem).
-     */
+    /** Tasowanie tylko przed startem. */
     public void shuffle() {
         if (!rounds.isEmpty() && (currentRound != 0 || currentPair != 0)) {
             throw new IllegalStateException("Cannot shuffle after tournament started");
         }
         Collections.shuffle(players, new Random());
-        buildInitialRound();
+        buildAllRounds();
+        moveCursorToFirstPlayable();
     }
 
-    /**
-     * Formalnie „zatwierdza” rozstawienie — nic nie robi, ale zostawiamy jako punkt kontrolny.
-     */
     public void confirmSeeding() {
-        // Miejsce na przyszłe walidacje/lock seeding
+        // hook na przyszłość
     }
 
-    /**
-     * Zwraca bieżącą parę do rozegrania, lub null jeśli turniej skończony.
-     */
+    /** Bieżąca para, lub null gdy turniej zakończony. */
     public BracketPair currentPairObj() {
         if (finished) return null;
         if (currentRound >= rounds.size()) return null;
@@ -121,53 +103,50 @@ public final class Tournament {
         return r.pairs().get(currentPair);
     }
 
-    /**
-     * Ustaw zwycięzcę bieżącej pary: 0=a, 1=b. Przepycha zwycięzcę dalej.
-     */
+    /** Zwycięzca 0=a, 1=b. Natychmiastowa propagacja do kolejnej rundy i przestawienie kursora. */
     public void advanceWithWinner(int winnerIdx) {
-        if (finished) return;
-        BracketPair pair = currentPairObj();
-        if (pair == null) return;
-        if (winnerIdx != 0 && winnerIdx != 1) {
-            throw new IllegalArgumentException("Winner must be 0 or 1");
+        if (isFinished()) return;
+
+        BracketPair cur = currentPairObj();
+        if (cur == null) return;
+
+        if (!cur.isDone()) {
+            cur.markWinner(winnerIdx);
         }
-        pair.setWinner(winnerIdx);
 
-        // Następna para w tej rundzie
-        BracketRound round = rounds.get(currentRound);
-        currentPair++;
+        // Propagacja do kolejnej rundy
+        int r = currentRound;
+        int i = currentPair;
 
-        // Jeżeli zamknęliśmy rundę, zbuduj kolejną
-        if (currentPair >= round.size()) {
-            List<String> winners = new ArrayList<>();
-            for (BracketPair p : round.pairs()) {
-                if (!p.isDone()) {
-                    throw new IllegalStateException("Round not fully decided");
+        if (r + 1 < rounds.size()) {
+            String winnerName = cur.winnerName();
+            BracketRound next = rounds.get(r + 1);
+            int nextIndex = i / 2;
+            boolean goesToA = (i % 2 == 0);
+
+            BracketPair target = next.pairs().get(nextIndex);
+            if (goesToA) {
+                if (target.a() == null || target.a().isBlank() || target.a().equals(winnerName)) {
+                    target.setA(winnerName);
                 }
-                winners.add(p.winnerName());
+            } else {
+                if (target.b() == null || target.b().isBlank() || target.b().equals(winnerName)) {
+                    target.setB(winnerName);
+                }
             }
+        }
 
-            if (winners.size() == 1) {
-                // Mamy zwycięzcę turnieju
+        // Przestaw kursor na kolejną grywalną parę
+        if (!moveCursorToFirstPlayable()) {
+            // nic nie zostało grywalne – sprawdź finał
+            if (isFinalWon()) {
                 finished = true;
                 finishedAt = Instant.now();
-                return;
             }
-
-            // Budujemy kolejną rundę
-            List<BracketPair> nextPairs = new ArrayList<>();
-            for (int i = 0; i < winners.size(); i += 2) {
-                nextPairs.add(new BracketPair(winners.get(i), winners.get(i + 1)));
-            }
-            rounds.add(new BracketRound(nextPairs));
-            currentRound++;
-            currentPair = 0;
         }
     }
 
-    /**
-     * Ustaw MatchId dla bieżącej pary, gdy startujemy mecz.
-     */
+    /** Ustaw MatchId dla bieżącej pary. */
     public void setCurrentPairMatch(MatchId id) {
         BracketPair p = currentPairObj();
         if (p == null) return;
@@ -177,16 +156,48 @@ public final class Tournament {
     public void replaceRounds(List<BracketRound> newRounds) {
         this.rounds.clear();
         this.rounds.addAll(newRounds);
+        // po odtworzeniu ze storage dobrze od razu poprawić kursor
+        moveCursorToFirstPlayable();
     }
 
-    /**
-     * Proste API do odtworzenia ze storage (opcjonalnie).
-     */
     public Tournament restoreProgress(int currentRound, int currentPair, boolean finished, Instant finishedAt) {
         this.currentRound = currentRound;
         this.currentPair = currentPair;
         this.finished = finished;
         this.finishedAt = finishedAt;
+        // zabezpieczenie po restore
+        if (!finished) moveCursorToFirstPlayable();
         return this;
+    }
+
+    // ─────────────────────────────────────────────────────────────
+
+    private boolean isPlayable(BracketPair p) {
+        return p != null
+                && p.a() != null
+                && p.b() != null
+                && !p.isDone();
+    }
+
+    /** Przesuwa kursor do pierwszej grywalnej pary (scan od runda 0 do finału). */
+    private boolean moveCursorToFirstPlayable() {
+        for (int r = 0; r < rounds.size(); r++) {
+            BracketRound round = rounds.get(r);
+            for (int i = 0; i < round.size(); i++) {
+                if (isPlayable(round.pairs().get(i))) {
+                    currentRound = r;
+                    currentPair = i;
+                    return true;
+                }
+            }
+        }
+        // brak grywalnych par – zostaw kursor jak jest, sygnalizuj false
+        return false;
+    }
+
+    private boolean isFinalWon() {
+        if (rounds.isEmpty()) return false;
+        BracketRound last = rounds.get(rounds.size() - 1);
+        return last.size() == 1 && last.pairs().get(0).isDone();
     }
 }

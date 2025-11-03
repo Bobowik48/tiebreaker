@@ -9,8 +9,13 @@ import com.googlecode.lanterna.input.KeyType;
 import com.googlecode.lanterna.screen.Screen;
 import com.googlecode.lanterna.terminal.DefaultTerminalFactory;
 import com.hubertbobowik.tiebreaker.domain.Match;
+// ▼ do drabinki
+import com.hubertbobowik.tiebreaker.domain.BracketPair;
+import com.hubertbobowik.tiebreaker.domain.BracketRound;
+import com.hubertbobowik.tiebreaker.domain.Tournament;
 
 import java.io.IOException;
+import java.util.List;
 
 public final class LanternaView implements AutoCloseable {
 
@@ -104,7 +109,7 @@ public final class LanternaView implements AutoCloseable {
         g.setForegroundColor(TextColor.ANSI.CYAN);
         g.putString(2, SCORE_ROW, "Wynik: ");
 
-        // ▼ nowość: imię (pierwszy token) w promptach
+        // ▼ pierwsze imiona w promptach
         String firstA = firstNameOf(m.playerA());
         String firstB = firstNameOf(m.playerB());
         g.setForegroundColor(TextColor.ANSI.YELLOW);
@@ -189,7 +194,7 @@ public final class LanternaView implements AutoCloseable {
     }
 
     public void renderMatchesList(String title, java.util.List<String> lines, int selected) throws IOException {
-        // 🔧 klucz: złap resize zanim policzymy szerokość
+        // 🔧 złap resize zanim policzymy szerokość
         TerminalSize newSize = screen.doResizeIfNecessary();
         if (newSize != null && !newSize.equals(lastSize)) {
             lastSize = newSize;
@@ -198,9 +203,8 @@ public final class LanternaView implements AutoCloseable {
 
         fullClear();
 
-        // policz szerokość po ewentualnym resize
         int w = screen.getTerminalSize().getColumns();
-        int usable = Math.max(10, w - 6); // marginesy z lewej/prawej
+        int usable = Math.max(10, w - 6); // marginesy
 
         g.setForegroundColor(TextColor.ANSI.WHITE);
         g.putString(2, 1, title, SGR.BOLD);
@@ -209,7 +213,6 @@ public final class LanternaView implements AutoCloseable {
             boolean sel = (i == selected);
             g.setForegroundColor(sel ? TextColor.ANSI.GREEN : TextColor.ANSI.WHITE);
 
-            // clip tylko jeśli naprawdę się nie mieści
             String text = lines.get(i);
             String toDraw = (text.length() > usable) ? clip(text, usable) : text;
 
@@ -224,7 +227,7 @@ public final class LanternaView implements AutoCloseable {
     public void renderRulesPicker(
             int focusedSection, int bestOf,
             String everySetLabel, String finalSetLabel,
-            String activeDescription // ⬅️ tylko jeden opis
+            String activeDescription
     ) throws IOException {
         fullClear();
         g.setForegroundColor(TextColor.ANSI.WHITE);
@@ -237,7 +240,6 @@ public final class LanternaView implements AutoCloseable {
         g.setForegroundColor(TextColor.ANSI.WHITE);
         g.putString(2, 9, "Opis:", SGR.BOLD);
 
-        // aktywny opis lekko „podkręcamy” kolorem
         g.setForegroundColor(TextColor.ANSI.GREEN);
         putWrap(activeDescription, 2, 10, 94);
 
@@ -252,10 +254,8 @@ public final class LanternaView implements AutoCloseable {
         String text = (focused ? "> " : "  ") + line;
 
         if (focused) {
-            // z atrybutem BOLD
             g.putString(2, y, text, SGR.BOLD);
         } else {
-            // bez atrybutów — zwykły overload
             g.putString(2, y, text);
         }
     }
@@ -295,16 +295,10 @@ public final class LanternaView implements AutoCloseable {
 
     // ── WEJŚCIE KLAWIATUROWE ────────────────────────────────────
 
-    /**
-     * Nieblokujący odczyt liter dla meczu.
-     */
     public UserIntent readIntent() throws IOException {
         KeyStroke ks = screen.pollInput();
         if (ks == null) {
-            try {
-                Thread.sleep(16);
-            } catch (InterruptedException ignored) {
-            }
+            try { Thread.sleep(16); } catch (InterruptedException ignored) {}
             return UserIntent.NONE;
         }
         if (ks.getKeyType() == KeyType.Character) {
@@ -327,9 +321,6 @@ public final class LanternaView implements AutoCloseable {
         return screen.readInput();
     }
 
-    /**
-     * Blokujący odczyt nawigacji (menu/listy).
-     */
     public NavKey readKey() throws IOException {
         KeyStroke ks = screen.readInput();
         if (ks == null) return NavKey.NONE;
@@ -365,6 +356,132 @@ public final class LanternaView implements AutoCloseable {
         g.setForegroundColor(TextColor.ANSI.WHITE);
         g.putString(2, SCORE_ROW + 2, padRight(line, 50));
         screen.refresh();
+    }
+
+    // ── NOWOŚĆ: GRAFICZNA DRABINKA ─────────────────────────────
+
+    /**
+     * Rysuje graficzną drabinkę z łącznikami. Winnerzy są widoczni od razu,
+     * a aktualny mecz zaznaczony zieloną strzałką.
+     */
+    public void renderBracket(Tournament t) throws IOException {
+        fullClear();
+
+        int cols = screen.getTerminalSize().getColumns();
+        int rows = screen.getTerminalSize().getRows();
+
+        g.setForegroundColor(TextColor.ANSI.WHITE);
+        String title = "PODGLĄD DRABINKI — " + t.size() + (t.isFinished() ? " [ZAKOŃCZONY]" : "");
+        g.putString(2, 1, clip(title, Math.max(20, cols - 4)), SGR.BOLD);
+
+        int roundsCount = t.rounds().size();
+        int colWidth = Math.max(24, Math.min(36, (cols - 6) / Math.max(1, roundsCount)));
+        int leftX = 2;
+        int baseGap = 3;
+        int topOffset = 3;
+
+        for (int r = 0; r < roundsCount; r++) {
+            var round = t.rounds().get(r);
+            int x = leftX + r * colWidth;
+
+            g.setForegroundColor(TextColor.ANSI.CYAN);
+            g.putString(x, topOffset - 1, "Runda " + (r + 1));
+
+            int block = baseGap * (1 << r);
+            int yStart = topOffset;
+
+            for (int i = 0; i < round.size(); i++) {
+                var p = round.pairs().get(i);
+                int y = yStart + i * block;
+
+                boolean isCurrent = (r == t.currentRound() && i == t.currentPair() && !t.isFinished());
+
+                String a = p.a() == null || p.a().isBlank() ? "—" : p.a();
+                String b = p.b() == null || p.b().isBlank() ? "—" : p.b();
+
+                // 0 = A wygrał, 1 = B wygrał, -1 = jeszcze nie
+                int winnerIdx = -1;
+                if (p.isDone()) {
+                    Integer w = p.winner();
+                    if (w != null && (w == 0 || w == 1)) winnerIdx = w;
+                }
+
+                // rysuj boks; zwycięzca ma zielony wiersz
+                putBox(x, y, colWidth - 2, a, b, isCurrent, winnerIdx);
+
+                // łączniki do kolejnej kolumny
+                if (r < roundsCount - 1) {
+                    int xRight = x + (colWidth - 2);
+                    int midA = y;
+                    int midB = y + 1;
+                    int joinY = y + (block / 2);
+
+                    g.setForegroundColor(TextColor.ANSI.WHITE);
+                    hLine(xRight, midA, 3);
+                    hLine(xRight, midB, 3);
+                    vLine(xRight + 3, Math.min(midA, midB), Math.max(midA, midB));
+                    if (block >= 2) {
+                        vLine(xRight + 3, Math.min(midA, midB), joinY);
+                        hLine(xRight + 3, joinY, 3);
+                    }
+                }
+            }
+        }
+
+        g.setForegroundColor(TextColor.ANSI.YELLOW);
+        g.putString(2, rows - 2, clip("[Esc] wstecz   Zielony wiersz = zwycięzca   Zielona strzałka = aktualny mecz", Math.max(10, cols - 4)));
+        screen.refresh();
+    }
+
+    // ── PRYMITYWY RYSUJĄCE DLA DRABINKI ─────────────────────────
+
+    private void putBox(int x, int y, int w, String a, String b, boolean current, int winnerIdx) throws IOException {
+        String top = "┌" + "─".repeat(Math.max(2, w - 2)) + "┐";
+        String bot = "└" + "─".repeat(Math.max(2, w - 2)) + "┘";
+        String lineA = "│ " + padRight(a, Math.max(0, w - 4)) + " │";
+        String lineB = "│ " + padRight(b, Math.max(0, w - 4)) + " │";
+
+        g.setForegroundColor(TextColor.ANSI.WHITE);
+        g.putString(x, y - 1, top);
+
+        // A – podświetl jeśli winnerIdx==0; zielona strzałka jeśli current
+        if (winnerIdx == 0) g.setForegroundColor(TextColor.ANSI.GREEN);
+        else g.setForegroundColor(TextColor.ANSI.WHITE);
+        String leftIndicatorA = current ? "►" : " ";
+        g.putString(x, y, leftIndicatorA + lineA.substring(1)); // zamieniamy pierwszy znak na znacznik
+
+        // B – podświetl jeśli winnerIdx==1
+        if (winnerIdx == 1) g.setForegroundColor(TextColor.ANSI.GREEN);
+        else g.setForegroundColor(TextColor.ANSI.WHITE);
+        String leftIndicatorB = " ";
+        g.putString(x, y + 1, leftIndicatorB + lineB.substring(1));
+
+        g.setForegroundColor(TextColor.ANSI.WHITE);
+        g.putString(x, y + 2, bot);
+    }
+
+    private String highlight(String s) {
+        // Tu tylko zwracamy s; atrybut BOLD załatwiamy przez osobne wywołanie,
+        // ale lanterna nie miesza łatwo SGR per fragment. Utrzymujemy spójny wygląd.
+        return s;
+    }
+
+    private void hLine(int x, int y, int len) {
+        if (len <= 0) return;
+        g.putString(x, y, "─".repeat(len));
+    }
+
+    private void vLine(int x, int y1, int y2) {
+        int from = Math.min(y1, y2);
+        int to = Math.max(y1, y2);
+        for (int yy = from; yy <= to; yy++) {
+            g.putString(x, yy, "│");
+        }
+    }
+
+    private static String safeName(String s, int max) {
+        if (s == null || s.isBlank()) return padRight("-", Math.max(1, max));
+        return clip(s, Math.max(1, max));
     }
 
     private static String padRight(String s, int len) {

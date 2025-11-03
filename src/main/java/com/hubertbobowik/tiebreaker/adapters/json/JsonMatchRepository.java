@@ -27,6 +27,9 @@ public final class JsonMatchRepository implements MatchRepository {
 
     @Override
     public Optional<Match> findById(MatchId id) {
+        if (id == null || id.value() == null) {
+            return Optional.empty(); // ← twarda osłona przed NPE
+        }
         MatchStore store = readStore();
         MatchDto dto = store.matches.get(id.value());
         return Optional.ofNullable(dto).map(MatchDto::toDomain);
@@ -52,24 +55,13 @@ public final class JsonMatchRepository implements MatchRepository {
     @Override
     public void delete(MatchId id) {
         MatchStore store = readStore();
-        store.matches.remove(id.value());
+        if (id != null) {
+            store.matches.remove(id.value());
+        }
         writeStore(store);
     }
 
-
-    // ───────────────────────────────────────────────────────────────────────────
-
-    private void writeAllMatches(java.util.List<Match> matches) {
-        try {
-            var dtos = matches.stream()
-                    .map(MatchDto::fromDomain)
-                    .toList();
-
-            mapper.writeValue(DATA_FILE.toFile(), dtos);
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
-    }
+    // ───────────────────────────────────────────────────────────
 
     private void ensureFileExists() {
         try {
