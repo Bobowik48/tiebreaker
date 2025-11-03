@@ -24,18 +24,21 @@ public class MatchServiceImpl implements MatchService {
 
     @Override
     public Match getMatch(MatchId id) {
-        return repo.findById(id)
-                .orElseGet(() -> {
-                    Match m = new Match(id, "Player A", "Player B", defaultRules);
-                    repo.save(m);
-                    return m;
-                });
+        return repo.findById(id).orElseThrow(() ->
+                new IllegalStateException("Brak aktywnego meczu o id: " + id.value()));
     }
 
     @Override
     public Match createMatch(String player1, String player2, Rules rules) {
         Match m = new Match(new MatchId("M-" + UUID.randomUUID()), player1, player2,
                 rules != null ? rules : defaultRules);
+        repo.save(m);
+        return m;
+    }
+
+    @Override
+    public Match createMatch(String a, String b, Rules r, MatchId id) {
+        Match m = new Match(id, a, b, r);
         repo.save(m);
         return m;
     }

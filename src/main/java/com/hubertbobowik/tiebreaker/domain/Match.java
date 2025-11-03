@@ -312,10 +312,10 @@ public class Match {
     /**
      * Przywrócenie pól serwisu ze storage.
      */
-    public Match restoreServing(int startingServer, int currentServer, int startingServerOfSet) {
-        this.startingServer = (startingServer == 0) ? 0 : 1;
-        this.currentServer = (currentServer == 0) ? 0 : 1;
-        this.startingServerOfSet = (startingServerOfSet == 0) ? 0 : 1;
+    public Match restoreServing(int starting, int startingOfSet, int current) {
+        this.startingServer = (starting == 0) ? 0 : 1;
+        this.startingServerOfSet = (startingOfSet == 0) ? 0 : 1;
+        this.currentServer = (current == 0) ? 0 : 1;
         return this;
     }
 

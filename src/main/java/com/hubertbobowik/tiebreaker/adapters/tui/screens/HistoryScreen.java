@@ -2,6 +2,7 @@ package com.hubertbobowik.tiebreaker.adapters.tui.screens;
 
 import com.hubertbobowik.tiebreaker.adapters.tui.LanternaView;
 import com.hubertbobowik.tiebreaker.application.MatchService;
+import com.hubertbobowik.tiebreaker.domain.Match;
 
 import java.time.Duration;
 import java.time.ZoneId;
@@ -25,7 +26,10 @@ public final class HistoryScreen {
      * Wyświetla listę i wraca do menu po Esc.
      */
     public void show() throws Exception {
-        var finished = service.listFinished();
+        var finished = service.listFinished()
+                .stream()
+                .sorted(java.util.Comparator.comparing(Match::createdAt).reversed())
+                .toList();
 
         List<String> lines = finished.stream().map(m -> {
             String ts = TS.format(m.createdAt());

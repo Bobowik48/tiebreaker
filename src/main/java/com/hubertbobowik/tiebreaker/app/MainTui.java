@@ -35,15 +35,15 @@ public final class MainTui {
                 switch (state) {
                     case MENU -> {
                         switch (menu.show(activeId)) {
-                            case CONTINUE -> state = State.MATCH;
-
-                            case NEW_MATCH -> {
-                                Match cur = service.getMatch(activeId);
-                                if (!cur.isFinished() && !view.confirm("Trwa mecz. Rozpocząć nowy?")) {
+                            case CONTINUE -> {
+                                try {
+                                    service.getMatch(activeId); // weryfikacja istnienia
+                                    state = State.MATCH;
+                                } catch (Exception ex) {
                                     state = State.MENU;
-                                    break;
                                 }
-
+                            }
+                            case NEW_MATCH -> {
                                 // 1) wybór zasad
                                 final boolean[] confirmed = {false};
                                 final Rules[] picked = {Rules.defaults()};
@@ -73,13 +73,14 @@ public final class MainTui {
                                     break;
                                 }
 
-                                // 3) serwis: wybór A/B lub rzut monetą
                                 boolean canceled = false;
-                                int starter = 0;
+                                int starter = 0; // 0 = A, 1 = B
                                 int cursor = 0;
                                 serveLoop:
                                 while (true) {
-                                    view.renderSimpleMenu("USTAWIENIA SERWISU", new String[]{
+                                    view.renderSimpleMenu(
+                                            "USTAWIENIA SERWISU",
+                                            new String[]{
                                                     "Zaczyna: " + (cursor == 0 ? "► " + names.a + " (A)" : names.a + " (A)"),
                                                     "Zaczyna: " + (cursor == 1 ? "► " + names.b + " (B)" : names.b + " (B)"),
                                                     "Rzut monetą [T]"
@@ -114,8 +115,9 @@ public final class MainTui {
                                     break;
                                 }
 
-                                // 4) utworzenie meczu
-                                Match created = service.createMatch(names.a, names.b, picked[0]);
+                                // 4) utworzenie meczu z unikalnym ID
+                                MatchId newId = new MatchId("LOCAL-" + System.currentTimeMillis());
+                                Match created = service.createMatch(names.a, names.b, picked[0], newId);
                                 created.setStartingServer(starter);
                                 repo.save(created);
                                 activeId = created.id();
@@ -123,7 +125,14 @@ public final class MainTui {
                             }
 
                             case HISTORY -> state = State.HISTORY;
-                            case EXIT -> state = State.EXIT;
+                            case EXIT -> {
+                                for (var m : service.getAllMatches()) {
+                                    if (!m.isFinished()) {
+                                        repo.delete(m.id());
+                                    }
+                                }
+                                state = State.EXIT;
+                            }
                         }
                     }
 

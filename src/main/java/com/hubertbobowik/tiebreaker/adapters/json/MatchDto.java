@@ -2,7 +2,10 @@ package com.hubertbobowik.tiebreaker.adapters.json;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.hubertbobowik.tiebreaker.domain.*;
+import com.hubertbobowik.tiebreaker.domain.GameScore;
+import com.hubertbobowik.tiebreaker.domain.Match;
+import com.hubertbobowik.tiebreaker.domain.MatchId;
+import com.hubertbobowik.tiebreaker.domain.Rules;
 
 import java.time.Instant;
 
@@ -109,7 +112,7 @@ public final class MatchDto {
                 g.tbA(), g.tbB(),
                 m.isFinished(),
                 m.winner(),
-                m.startingServer(),          // <<< serwis do JSON
+                m.startingServer(),          // ← bez „get”
                 m.currentServer(),
                 m.startingServerOfSet(),
                 m.createdAt() != null ? m.createdAt().toString() : null,
@@ -128,8 +131,12 @@ public final class MatchDto {
 
         Match m = new Match(new MatchId(id), playerA, playerB, r, created);
         GameScore gs = new GameScore(tieBreak, tbTarget, stepsA, stepsB, adv, tbA, tbB);
+
         m = m.restore(setsA, setsB, gamesA, gamesB, gs, finished, winner);
-        m.restoreServing(startingServer, currentServer, startingServerOfSet);
+
+        // ← to wymaga patcha w Match (restoreServing)
+        m.restoreServing(startingServer, startingServerOfSet, currentServer);
+
         if (finishedAt != null) {
             m.setFinishedAtFromStorage(Instant.parse(finishedAt));
         }

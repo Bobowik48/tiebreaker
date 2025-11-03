@@ -9,6 +9,7 @@ import java.util.List;
 public interface MatchService {
     Match getMatch(MatchId id);
     Match createMatch(String player1, String player2, Rules rules);
+    Match createMatch(String a, String b, Rules r, MatchId id);
     Match addPoint(MatchId id, int playerIndex);
     Match undo(MatchId id);
     Match redo(MatchId id);
