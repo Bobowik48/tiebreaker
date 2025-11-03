@@ -156,6 +156,21 @@ public final class LanternaView implements AutoCloseable {
         screen.refresh();
     }
 
+    public void renderWinnerPanelTournament(String winner) throws IOException {
+        clearLine(SCORE_ROW + 1);
+        clearLine(SCORE_ROW + 2);
+        clearLine(SCORE_ROW + 3);
+        clearLine(HELP_ROW);
+
+        g.setForegroundColor(TextColor.ANSI.WHITE);
+        g.putString(2, SCORE_ROW + 2, padRight("Zwycięzca: " + winner, 60), SGR.BOLD);
+
+        g.setForegroundColor(TextColor.ANSI.YELLOW);
+        g.putString(2, SCORE_ROW + 3, padRight("[B] drabinka    [Q] wyjście", 60));
+
+        screen.refresh();
+    }
+
     // ── PRYMITYWY: MENU / LISTY ─────────────────────────────────
 
     public void renderSimpleMenu(String title, String[] items, int selected) throws IOException {

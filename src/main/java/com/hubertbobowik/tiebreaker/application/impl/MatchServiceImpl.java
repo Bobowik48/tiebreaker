@@ -32,6 +32,7 @@ public class MatchServiceImpl implements MatchService {
     public Match createMatch(String player1, String player2, Rules rules) {
         Match m = new Match(new MatchId("M-" + UUID.randomUUID()), player1, player2,
                 rules != null ? rules : defaultRules);
+        System.out.println("[DEBUG] createMatch bestOf=" + m.rules().bestOf());
         repo.save(m);
         return m;
     }

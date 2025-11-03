@@ -59,6 +59,7 @@ public final class MainTui {
                                 final boolean[] confirmed = {false};
                                 final Rules[] picked = {lastPickedRules != null ? lastPickedRules : Rules.defaults()};
 
+                                // wybór zasad
                                 RulesScreen rs = new RulesScreen(view, new RulesScreen.Callback() {
                                     @Override
                                     public void onConfirm(Rules rules) {
@@ -71,7 +72,6 @@ public final class MainTui {
                                         confirmed[0] = false;
                                     }
                                 });
-
                                 rs.show();
                                 if (!confirmed[0]) {
                                     state = State.MENU;
@@ -79,8 +79,7 @@ public final class MainTui {
                                 }
 
                                 // imiona
-                                NameInputScreen nameScr = new NameInputScreen(view);
-                                var names = nameScr.ask();
+                                var names = new NameInputScreen(view).ask();
                                 if (names == null) break;
 
                                 // serwujący
@@ -95,7 +94,8 @@ public final class MainTui {
                                                     (cur == 0 ? "► " : "") + names.a,
                                                     (cur == 1 ? "► " : "") + names.b,
                                                     "Rzut monetą [T]"
-                                            }, cur
+                                            },
+                                            cur
                                     );
                                     var k = view.readRaw();
                                     if (k == null) continue;
@@ -122,11 +122,14 @@ public final class MainTui {
                                 }
                                 if (canceled) break;
 
+                                // UTWÓRZ MECZ z rzeczywiście wybranymi zasadami
                                 MatchId newId = new MatchId("LOCAL-" + System.currentTimeMillis());
-                                Match created = matchService.createMatch(names.a, names.b, lastPickedRules, newId);
+                                Match created = matchService.createMatch(names.a, names.b, picked[0], newId);
                                 created.setStartingServer(starter);
                                 matchRepo.save(created);
+
                                 activeMatchId = newId;
+                                lastPickedRules = picked[0]; // zapamiętaj wybor
                                 state = State.MATCH;
                             }
 
@@ -146,10 +149,11 @@ public final class MainTui {
 
                     // ── MECZ ──────────────────────────────
                     case MATCH -> {
-                        // uruchom UI meczu
-                        matchUi.run(activeMatchId);
+                        MatchScreen.Result res = (activeTournamentId != null)
+                                ? matchUi.run(activeMatchId, true)   // turniej
+                                : matchUi.run(activeMatchId);        // zwykły mecz
 
-                        // po wyjściu z meczu spróbuj popchnąć turniej
+                        // jeżeli mecz był częścią turnieju – popchnij drabinkę
                         if (activeTournamentId != null) {
                             try {
                                 var t = tournamentService.get(activeTournamentId);
@@ -159,16 +163,30 @@ public final class MainTui {
                                     if (m != null && m.isFinished()) {
                                         String wn = m.winnerName();
                                         int winnerIdx = wn.equals(p.a()) ? 0 : 1;
-
                                         tournamentService.advanceWithWinner(activeTournamentId, winnerIdx);
-                                        // wyczyść aktywny mecz, kolejny zostanie założony przez ensureCurrentMatch(...)
+                                        // kolejny mecz zostanie utworzony przez ensureCurrentMatch(...)
                                         activeMatchId = null;
                                     }
                                 }
-                            } catch (Exception ignored) { /* brak aktywnego turnieju lub mecz nie skończony */ }
+                            } catch (Exception ignored) {
+                            }
+
+                            if (res == MatchScreen.Result.GO_TO_BRACKET) {
+                                bracketUi.show(activeTournamentId);
+                                state = State.TOURNAMENT_MENU;
+                                break;
+                            }
+
+                            state = State.MENU;
+                            break;
                         }
 
-                        state = State.MENU;
+                        // zwykły mecz: respektuj GO_TO_HISTORY
+                        if (res == MatchScreen.Result.GO_TO_HISTORY) {
+                            state = State.HISTORY;
+                        } else {
+                            state = State.MENU;
+                        }
                     }
 
                     // ── HISTORIA ──────────────────────────
