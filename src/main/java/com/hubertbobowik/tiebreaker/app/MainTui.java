@@ -1,57 +1,69 @@
 package com.hubertbobowik.tiebreaker.app;
 
 import com.hubertbobowik.tiebreaker.adapters.json.JsonMatchRepository;
+import com.hubertbobowik.tiebreaker.adapters.json.JsonTournamentRepository;
 import com.hubertbobowik.tiebreaker.adapters.tui.LanternaView;
-import com.hubertbobowik.tiebreaker.adapters.tui.screens.HistoryScreen;
-import com.hubertbobowik.tiebreaker.adapters.tui.screens.MatchScreen;
-import com.hubertbobowik.tiebreaker.adapters.tui.screens.MenuScreen;
-import com.hubertbobowik.tiebreaker.adapters.tui.screens.NameInputScreen;
-import com.hubertbobowik.tiebreaker.adapters.tui.screens.RulesScreen;
+import com.hubertbobowik.tiebreaker.adapters.tui.screens.*;
 import com.hubertbobowik.tiebreaker.application.MatchService;
+import com.hubertbobowik.tiebreaker.application.TournamentService;
 import com.hubertbobowik.tiebreaker.application.impl.MatchServiceImpl;
+import com.hubertbobowik.tiebreaker.application.impl.TournamentServiceImpl;
 import com.hubertbobowik.tiebreaker.domain.Match;
 import com.hubertbobowik.tiebreaker.domain.MatchId;
 import com.hubertbobowik.tiebreaker.domain.Rules;
+import com.hubertbobowik.tiebreaker.domain.TournamentId;
 import com.hubertbobowik.tiebreaker.ports.MatchRepository;
+import com.hubertbobowik.tiebreaker.ports.TournamentRepository;
 
 public final class MainTui {
-    enum State {MENU, MATCH, HISTORY, EXIT}
+
+    enum State {MENU, MATCH, HISTORY, TOURNAMENT_SETUP, TOURNAMENT_MENU, EXIT}
 
     public static void main(String[] args) {
-        MatchRepository repo = new JsonMatchRepository();
-        MatchService service = new MatchServiceImpl(repo, Rules.defaults());
 
-        MatchId activeId = new MatchId("LOCAL-0001");
+        // ── Repo + Serwisy ───────────────────────────────
+        MatchRepository matchRepo = new JsonMatchRepository();
+        TournamentRepository tournamentRepo = new JsonTournamentRepository();
+        MatchService matchService = new MatchServiceImpl(matchRepo, Rules.defaults());
+        TournamentService tournamentService = new TournamentServiceImpl(tournamentRepo, matchService);
+
+        MatchId activeMatchId = null;
+        TournamentId activeTournamentId = null;
+
         State state = State.MENU;
 
         try (LanternaView view = new LanternaView()) {
             view.open();
 
-            var menu = new MenuScreen(view, service);
-            var matchUi = new MatchScreen(view, service);
-            var histUi = new HistoryScreen(view, service);
+            var menu = new MenuScreen(view, matchService, tournamentService);
+            var matchUi = new MatchScreen(view, matchService);
+            var histUi = new HistoryScreen(view, matchService);
+            var tourSetupUi = new TournamentSetupScreen(view, tournamentService);
+            var tourMenuUi = new TournamentMenuScreen(view, tournamentService);
+            var bracketUi = new BracketScreen(view, tournamentService);
+
+            Rules lastPickedRules = Rules.defaults();
 
             while (state != State.EXIT) {
+
                 switch (state) {
+
+                    // ── MENU ──────────────────────────────
                     case MENU -> {
-                        switch (menu.show(activeId)) {
-                            case CONTINUE -> {
-                                try {
-                                    service.getMatch(activeId); // weryfikacja istnienia
-                                    state = State.MATCH;
-                                } catch (Exception ex) {
-                                    state = State.MENU;
-                                }
-                            }
+                        var sel = menu.show(activeMatchId, activeTournamentId);
+
+                        switch (sel) {
+                            case CONTINUE_MATCH -> state = State.MATCH;
+
                             case NEW_MATCH -> {
-                                // 1) wybór zasad
                                 final boolean[] confirmed = {false};
-                                final Rules[] picked = {Rules.defaults()};
+                                final Rules[] picked = {lastPickedRules != null ? lastPickedRules : Rules.defaults()};
+
                                 RulesScreen rs = new RulesScreen(view, new RulesScreen.Callback() {
                                     @Override
                                     public void onConfirm(Rules rules) {
-                                        confirmed[0] = true;
                                         picked[0] = rules;
+                                        confirmed[0] = true;
                                     }
 
                                     @Override
@@ -59,94 +71,141 @@ public final class MainTui {
                                         confirmed[0] = false;
                                     }
                                 });
+
                                 rs.show();
                                 if (!confirmed[0]) {
                                     state = State.MENU;
                                     break;
                                 }
 
-                                // 2) imiona
-                                NameInputScreen nameScreen = new NameInputScreen(view);
-                                var names = nameScreen.ask();
-                                if (names == null) {
-                                    state = State.MENU;
-                                    break;
-                                }
+                                // imiona
+                                NameInputScreen nameScr = new NameInputScreen(view);
+                                var names = nameScr.ask();
+                                if (names == null) break;
 
+                                // serwujący
                                 boolean canceled = false;
-                                int starter = 0; // 0 = A, 1 = B
-                                int cursor = 0;
-                                serveLoop:
+                                int starter = 0;
+                                int cur = 0;
+                                serve:
                                 while (true) {
                                     view.renderSimpleMenu(
-                                            "USTAWIENIA SERWISU",
+                                            "USTAW SERWUJĄCEGO",
                                             new String[]{
-                                                    "Zaczyna: " + (cursor == 0 ? "► " + names.a + " (A)" : names.a + " (A)"),
-                                                    "Zaczyna: " + (cursor == 1 ? "► " + names.b + " (B)" : names.b + " (B)"),
+                                                    (cur == 0 ? "► " : "") + names.a,
+                                                    (cur == 1 ? "► " : "") + names.b,
                                                     "Rzut monetą [T]"
-                                            },
-                                            cursor
+                                            }, cur
                                     );
-                                    var ks = view.readRaw();
-                                    if (ks == null) continue;
-                                    switch (ks.getKeyType()) {
-                                        case ArrowUp, ArrowDown -> cursor ^= 1;
+                                    var k = view.readRaw();
+                                    if (k == null) continue;
+
+                                    switch (k.getKeyType()) {
+                                        case ArrowUp, ArrowDown -> cur ^= 1;
                                         case Enter -> {
-                                            starter = cursor;
-                                            break serveLoop;
+                                            starter = cur;
+                                            break serve;
                                         }
                                         case Character -> {
-                                            char c = Character.toUpperCase(ks.getCharacter());
-                                            if (c == 'T') {
-                                                starter = (new java.util.Random().nextBoolean() ? 0 : 1);
-                                                break serveLoop;
+                                            if (Character.toUpperCase(k.getCharacter()) == 'T') {
+                                                starter = (Math.random() < 0.5 ? 0 : 1);
+                                                break serve;
                                             }
                                         }
                                         case Escape -> {
                                             canceled = true;
-                                            break serveLoop;
+                                            break serve;
                                         }
                                         default -> {
                                         }
                                     }
                                 }
-                                if (canceled) {
-                                    state = State.MENU;
-                                    break;
-                                }
+                                if (canceled) break;
 
-                                // 4) utworzenie meczu z unikalnym ID
                                 MatchId newId = new MatchId("LOCAL-" + System.currentTimeMillis());
-                                Match created = service.createMatch(names.a, names.b, picked[0], newId);
+                                Match created = matchService.createMatch(names.a, names.b, lastPickedRules, newId);
                                 created.setStartingServer(starter);
-                                repo.save(created);
-                                activeId = created.id();
+                                matchRepo.save(created);
+                                activeMatchId = newId;
                                 state = State.MATCH;
                             }
 
+                            case CONTINUE_TOURNAMENT -> state = State.TOURNAMENT_MENU;
+                            case NEW_TOURNAMENT -> state = State.TOURNAMENT_SETUP;
                             case HISTORY -> state = State.HISTORY;
+
                             case EXIT -> {
-                                for (var m : service.getAllMatches()) {
-                                    if (!m.isFinished()) {
-                                        repo.delete(m.id());
-                                    }
+                                // czyścimy NIESKOŃCZONE mecze
+                                for (var m : matchService.getAllMatches()) {
+                                    if (!m.isFinished()) matchRepo.delete(m.id());
                                 }
                                 state = State.EXIT;
                             }
                         }
                     }
 
+                    // ── MECZ ──────────────────────────────
                     case MATCH -> {
-                        var result = matchUi.run(activeId);
-                        state = (result == MatchScreen.Result.GO_TO_HISTORY) ? State.HISTORY : State.MENU;
+                        // uruchom UI meczu
+                        matchUi.run(activeMatchId);
+
+                        // po wyjściu z meczu spróbuj popchnąć turniej
+                        if (activeTournamentId != null) {
+                            try {
+                                var t = tournamentService.get(activeTournamentId);
+                                var p = t.currentPairObj();
+                                if (p != null && p.matchId() != null && p.matchId().equals(activeMatchId)) {
+                                    var m = matchService.getMatch(activeMatchId);
+                                    if (m != null && m.isFinished()) {
+                                        String wn = m.winnerName();
+                                        int winnerIdx = wn.equals(p.a()) ? 0 : 1;
+
+                                        tournamentService.advanceWithWinner(activeTournamentId, winnerIdx);
+                                        // wyczyść aktywny mecz, kolejny zostanie założony przez ensureCurrentMatch(...)
+                                        activeMatchId = null;
+                                    }
+                                }
+                            } catch (Exception ignored) { /* brak aktywnego turnieju lub mecz nie skończony */ }
+                        }
+
+                        state = State.MENU;
                     }
 
+                    // ── HISTORIA ──────────────────────────
                     case HISTORY -> {
                         histUi.show();
                         state = State.MENU;
                     }
+
+                    // ── SETUP TURNIEJU ────────────────────
+                    case TOURNAMENT_SETUP -> {
+                        var r = tourSetupUi.show();
+                        if (!r.isOk()) {
+                            state = State.MENU;
+                            break;
+                        }
+                        activeTournamentId = r.id();
+                        state = State.TOURNAMENT_MENU;
+                    }
+
+                    case TOURNAMENT_MENU -> {
+                        var r = tourMenuUi.show(activeTournamentId, lastPickedRules);
+
+                        switch (r.action()) {
+                            case START_MATCH -> {
+                                activeMatchId = r.matchId();
+                                state = State.MATCH;
+                            }
+                            case SHOW_BRACKET -> {
+                                bracketUi.show(activeTournamentId);
+                                state = State.TOURNAMENT_MENU;
+                            }
+                            case BACK -> state = State.MENU;
+                        }
+                    }
                 }
             }
+
         } catch (Exception e) {
             e.printStackTrace();
         }

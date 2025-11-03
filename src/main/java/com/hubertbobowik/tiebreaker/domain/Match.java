@@ -199,6 +199,11 @@ public class Match {
         return Duration.between(createdAt, end);
     }
 
+    public String winnerName() {
+        if (!finished || winner == null) return null;
+        return winner == 0 ? playerA : playerB;
+    }
+
     // ### Accessors ###
     public MatchId id() {
         return id;
