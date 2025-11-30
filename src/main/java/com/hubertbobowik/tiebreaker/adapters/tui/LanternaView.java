@@ -1,22 +1,22 @@
 package com.hubertbobowik.tiebreaker.adapters.tui;
 
-import com.googlecode.lanterna.SGR;
-import com.googlecode.lanterna.TerminalSize;
-import com.googlecode.lanterna.TextColor;
-import com.googlecode.lanterna.graphics.TextGraphics;
 import com.googlecode.lanterna.input.KeyStroke;
 import com.googlecode.lanterna.input.KeyType;
-import com.googlecode.lanterna.screen.Screen;
-import com.googlecode.lanterna.terminal.DefaultTerminalFactory;
 import com.hubertbobowik.tiebreaker.domain.Match;
-// ▼ do drabinki
-import com.hubertbobowik.tiebreaker.domain.BracketPair;
-import com.hubertbobowik.tiebreaker.domain.BracketRound;
-import com.hubertbobowik.tiebreaker.domain.Tournament;
 
-import java.io.IOException;
-import java.util.List;
+import javax.swing.*;
+import java.awt.*;
+import java.awt.event.KeyAdapter;
+import java.awt.event.KeyEvent;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.TimeUnit;
 
+/**
+ * Swing-based replacement for the previous Lanterna view. It keeps the same API so the
+ * surrounding application logic stays untouched, but renders everything on a single
+ * JFrame with basic controls (buttons + keyboard shortcuts).
+ */
 public final class LanternaView implements AutoCloseable {
 
     // Intencje podczas meczu (litery)
@@ -25,475 +25,330 @@ public final class LanternaView implements AutoCloseable {
     // Strzałki/Enter/Esc – do nawigacji w menu/listach
     public enum NavKey {UP, DOWN, LEFT, RIGHT, ENTER, ESC, NONE}
 
-    private Screen screen;
-    private TextGraphics g;
-    private TerminalSize lastSize;
+    private JFrame frame;
+    private JPanel content;
+    private JLabel titleLabel;
+    private JLabel namesLabel;
+    private JLabel scoreLabel;
+    private JLabel elapsedLabel;
+    private JLabel serverLabel;
+    private JLabel helperLabel;
 
-    private boolean staticDrawn = false;
+    private final BlockingQueue<UserIntent> intentQueue = new ArrayBlockingQueue<>(32);
+    private final BlockingQueue<NavKey> navQueue = new ArrayBlockingQueue<>(32);
+    private final BlockingQueue<KeyStroke> rawQueue = new ArrayBlockingQueue<>(64);
 
-    // Layout podstawowego ekranu meczu
-    private static final int TITLE_ROW = 1;
-    private static final int NAMES_ROW = 3;
-    private static final int SCORE_ROW = 5;
-    private static final int HELP_ROW = 8;
-
-    // ── ŻYCIE EKRANU ─────────────────────────────────────────────
-
-    public void open() throws IOException {
-        DefaultTerminalFactory factory = new DefaultTerminalFactory()
-                .setInitialTerminalSize(new TerminalSize(120, 30))
-                .setPreferTerminalEmulator(true); // stabilniej na Win/Mac
-
-        screen = factory.createScreen();
-        screen.startScreen();
-        screen.setCursorPosition(null);
-
-        g = screen.newTextGraphics();
-        fullClear();
-
-        lastSize = screen.getTerminalSize();
-        staticDrawn = false;
+    public void open() {
+        try {
+            SwingUtilities.invokeAndWait(() -> {
+                frame = new JFrame("Tiebreaker");
+                frame.setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
+                frame.setSize(1000, 700);
+                frame.setLocationRelativeTo(null);
+                frame.setLayout(new BorderLayout());
+                content = new JPanel();
+                content.setLayout(new BoxLayout(content, BoxLayout.Y_AXIS));
+                frame.setContentPane(new JScrollPane(content));
+                installKeyHandling();
+                frame.setVisible(true);
+                frame.setFocusable(true);
+                frame.requestFocus();
+            });
+        } catch (Exception e) {
+            throw new IllegalStateException("Failed to initialize UI", e);
+        }
     }
 
     /**
-     * Wołaj w pętli – dba o poprawne odrysowanie po resize.
+     * Nieblokujące odświeżenie układu (w trybie Swingowym brak obsługi resize).
      */
-    public void checkResizeAndRedraw(Match m) throws IOException {
-        TerminalSize newSize = screen.doResizeIfNecessary();
-        TerminalSize current = screen.getTerminalSize();
-        boolean resized = (newSize != null && !newSize.equals(lastSize)) || !current.equals(lastSize);
-
-        if (resized) {
-            lastSize = current;
-            staticDrawn = false;
-            screen.refresh(Screen.RefreshType.COMPLETE);
-        }
-
-        if (current.getColumns() < 40 || current.getRows() < 10) {
-            screen.clear();
-            g.setForegroundColor(TextColor.ANSI.WHITE);
-            g.putString(1, 1, "Powieksz okno (min 40x10), aby wyswietlic UI.", SGR.BOLD);
-            screen.refresh();
-            staticDrawn = false;
-            return;
-        }
-
-        if (!staticDrawn) {
-            renderStatic(m);
-            renderScoreLine(m.scoreLine());
-        }
+    public void checkResizeAndRedraw(Match m) {
+        // Swing sam dba o odświeżanie – tutaj tylko pewność, że statyczne elementy istnieją.
+        renderStatic(m);
     }
 
     /**
      * Twarde czyszczenie ekranu (np. przy zmianie ekranu).
      */
-    public void fullClear() throws IOException {
-        screen.clear();
-        screen.refresh(Screen.RefreshType.COMPLETE);
-        staticDrawn = false;
+    public void fullClear() {
+        SwingUtilities.invokeLater(() -> {
+            content.removeAll();
+            content.revalidate();
+            content.repaint();
+        });
     }
 
     // ── RYSOWANIE EKRANU MECZU ──────────────────────────────────
 
-    public void renderStatic(Match m) throws IOException {
-        if (staticDrawn) return;
+    public void renderStatic(Match m) {
+        SwingUtilities.invokeLater(() -> {
+            content.removeAll();
 
-        screen.clear();
+            titleLabel = label("TIEBREAKER — TRYB GRAFICZNY", 18, Font.BOLD);
+            namesLabel = label(m.playerA() + "   vs   " + m.playerB(), 16, Font.PLAIN);
+            scoreLabel = label("Wynik:", 16, Font.BOLD);
+            elapsedLabel = label("", 14, Font.PLAIN);
+            serverLabel = label("", 14, Font.PLAIN);
+            helperLabel = label(
+                    "[A] punkt dla " + firstNameOf(m.playerA()) +
+                            "   [B] punkt dla " + firstNameOf(m.playerB()) +
+                            "   [U] cofnij   [R] przywróć   [X] zakończ   [Q] wyjście",
+                    12, Font.PLAIN);
 
-        g.setForegroundColor(TextColor.ANSI.WHITE);
-        g.putString(2, TITLE_ROW, "TIEBREAKER — TRYB TEKSTOWY", SGR.BOLD);
+            JPanel buttons = new JPanel(new FlowLayout(FlowLayout.LEFT));
+            buttons.add(actionButton("Punkt A", UserIntent.POINT_A));
+            buttons.add(actionButton("Punkt B", UserIntent.POINT_B));
+            buttons.add(actionButton("Cofnij", UserIntent.UNDO));
+            buttons.add(actionButton("Przywróć", UserIntent.REDO));
+            buttons.add(actionButton("Zakończ", UserIntent.FINISH));
+            buttons.add(actionButton("Wyjdź", UserIntent.QUIT));
 
-        g.setForegroundColor(TextColor.ANSI.WHITE);
-        g.putString(2, NAMES_ROW, m.playerA() + "   vs   " + m.playerB());
+            content.add(padded(titleLabel));
+            content.add(padded(namesLabel));
+            content.add(padded(scoreLabel));
+            content.add(padded(elapsedLabel));
+            content.add(padded(serverLabel));
+            content.add(padded(helperLabel));
+            content.add(padded(buttons));
 
-        g.setForegroundColor(TextColor.ANSI.CYAN);
-        g.putString(2, SCORE_ROW, "Wynik: ");
-
-        // ▼ pierwsze imiona w promptach
-        String firstA = firstNameOf(m.playerA());
-        String firstB = firstNameOf(m.playerB());
-        g.setForegroundColor(TextColor.ANSI.YELLOW);
-        g.putString(2, HELP_ROW,
-                "[A] punkt dla " + firstA +
-                        "   [B] punkt dla " + firstB +
-                        "   [U] cofnij   [R] przywróć   [X] zakończ   [Q] wyjście"
-        );
-
-        screen.refresh();
-        staticDrawn = true;
+            content.revalidate();
+            content.repaint();
+        });
     }
 
     /**
      * Aktualizuje wyłącznie linię wyniku (bez migotania).
      */
-    public void renderScoreLine(String line) throws IOException {
-        g.setForegroundColor(TextColor.ANSI.CYAN);
-        g.putString(2, SCORE_ROW, "Wynik: ");
-        g.setForegroundColor(TextColor.ANSI.GREEN);
-        g.putString(10, SCORE_ROW, padRight(line, 32));
-        screen.refresh();
+    public void renderScoreLine(String line) {
+        SwingUtilities.invokeLater(() -> {
+            if (scoreLabel != null) {
+                scoreLabel.setText("Wynik: " + line);
+            }
+        });
     }
 
-    public void renderElapsed(String text) throws IOException {
-        g.setForegroundColor(TextColor.ANSI.WHITE);
-        g.putString(2, SCORE_ROW + 1, padRight(text, 40));
-        screen.refresh();
+    public void renderElapsed(String text) {
+        SwingUtilities.invokeLater(() -> {
+            if (elapsedLabel != null) {
+                elapsedLabel.setText(text);
+            }
+        });
     }
 
     /**
      * Pasek zwycięzcy po zakończeniu meczu.
      */
-    public void renderWinnerPanel(String winner) throws IOException {
-        // wyczyść sekcję pod wynikiem (czas, pomoc, stare opcje)
-        clearLine(SCORE_ROW + 1);
-        clearLine(SCORE_ROW + 2);
-        clearLine(SCORE_ROW + 3);
-        clearLine(HELP_ROW);
-
-        // zwycięzca
-        g.setForegroundColor(TextColor.ANSI.WHITE);
-        g.putString(2, SCORE_ROW + 2, padRight("Zwycięzca: " + winner, 60), SGR.BOLD);
-
-        // tylko to, co chcemy: [H] historia, [Q] wyjście
-        g.setForegroundColor(TextColor.ANSI.YELLOW);
-        g.putString(2, SCORE_ROW + 3, padRight("[H] historia    [Q] wyjście", 60));
-
-        screen.refresh();
-    }
-
-    public void renderWinnerPanelTournament(String winner) throws IOException {
-        clearLine(SCORE_ROW + 1);
-        clearLine(SCORE_ROW + 2);
-        clearLine(SCORE_ROW + 3);
-        clearLine(HELP_ROW);
-
-        g.setForegroundColor(TextColor.ANSI.WHITE);
-        g.putString(2, SCORE_ROW + 2, padRight("Zwycięzca: " + winner, 60), SGR.BOLD);
-
-        g.setForegroundColor(TextColor.ANSI.YELLOW);
-        g.putString(2, SCORE_ROW + 3, padRight("[B] drabinka    [Q] wyjście", 60));
-
-        screen.refresh();
+    public void renderWinnerPanel(String winner) {
+        SwingUtilities.invokeLater(() -> {
+            helperLabel.setText("[H] historia    [Q] wyjście");
+            serverLabel.setText("");
+            elapsedLabel.setText("");
+            JLabel win = label("Zwycięzca: " + winner, 16, Font.BOLD);
+            content.add(padded(win));
+            content.revalidate();
+            content.repaint();
+        });
     }
 
     // ── PRYMITYWY: MENU / LISTY ─────────────────────────────────
 
-    public void renderSimpleMenu(String title, String[] items, int selected) throws IOException {
-        fullClear();
-        g.setForegroundColor(TextColor.ANSI.WHITE);
-        g.putString(2, 1, title, SGR.BOLD);
-
-        for (int i = 0; i < items.length; i++) {
-            boolean sel = (i == selected);
-            g.setForegroundColor(sel ? TextColor.ANSI.GREEN : TextColor.ANSI.WHITE);
-            g.putString(4, 3 + i, (sel ? "› " : "  ") + items[i]);
-        }
-        g.setForegroundColor(TextColor.ANSI.YELLOW);
-        g.putString(2, 3 + items.length + 1, "[↑/↓] wybór   [Enter] zatwierdź   [Esc] wstecz");
-        screen.refresh();
+    public void renderSimpleMenu(String title, String[] items, int selected) {
+        SwingUtilities.invokeLater(() -> {
+            content.removeAll();
+            content.add(padded(label(title, 18, Font.BOLD)));
+            var list = new JList<>(items);
+            list.setSelectedIndex(selected);
+            list.setFocusable(false);
+            content.add(padded(list));
+            content.add(padded(label("[↑/↓] wybór   [Enter] zatwierdź   [Esc] wstecz", 12, Font.PLAIN)));
+            content.revalidate();
+            content.repaint();
+        });
     }
 
-    public void renderMatchesList(String title, java.util.List<String> lines, int selected) throws IOException {
-        // 🔧 złap resize zanim policzymy szerokość
-        TerminalSize newSize = screen.doResizeIfNecessary();
-        if (newSize != null && !newSize.equals(lastSize)) {
-            lastSize = newSize;
-            screen.refresh(Screen.RefreshType.COMPLETE);
-        }
-
-        fullClear();
-
-        int w = screen.getTerminalSize().getColumns();
-        int usable = Math.max(10, w - 6); // marginesy
-
-        g.setForegroundColor(TextColor.ANSI.WHITE);
-        g.putString(2, 1, title, SGR.BOLD);
-
-        for (int i = 0; i < lines.size(); i++) {
-            boolean sel = (i == selected);
-            g.setForegroundColor(sel ? TextColor.ANSI.GREEN : TextColor.ANSI.WHITE);
-
-            String text = lines.get(i);
-            String toDraw = (text.length() > usable) ? clip(text, usable) : text;
-
-            g.putString(4, 3 + i, (sel ? "› " : "  ") + toDraw);
-        }
-
-        g.setForegroundColor(TextColor.ANSI.YELLOW);
-        g.putString(2, 3 + lines.size() + 1, "[↑/↓] wybór   [Esc] wstecz");
-        screen.refresh();
+    public void renderMatchesList(String title, java.util.List<String> lines, int selected) {
+        SwingUtilities.invokeLater(() -> {
+            content.removeAll();
+            content.add(padded(label(title, 18, Font.BOLD)));
+            var list = new JList<>(lines.toArray(String[]::new));
+            list.setSelectedIndex(selected);
+            list.setFocusable(false);
+            content.add(padded(list));
+            content.add(padded(label("[↑/↓] wybór   [Esc] wstecz", 12, Font.PLAIN)));
+            content.revalidate();
+            content.repaint();
+        });
     }
 
     public void renderRulesPicker(
             int focusedSection, int bestOf,
             String everySetLabel, String finalSetLabel,
             String activeDescription
-    ) throws IOException {
-        fullClear();
-        g.setForegroundColor(TextColor.ANSI.WHITE);
-        g.putString(2, 1, "Wybór zasad", SGR.BOLD);
-
-        drawRow(3, "Best of", String.valueOf(bestOf), focusedSection == 0);
-        drawRow(5, "Tiebreak w setach", everySetLabel, focusedSection == 1);
-        drawRow(7, "Finałowy set", finalSetLabel, focusedSection == 2);
-
-        g.setForegroundColor(TextColor.ANSI.WHITE);
-        g.putString(2, 9, "Opis:", SGR.BOLD);
-
-        g.setForegroundColor(TextColor.ANSI.GREEN);
-        putWrap(activeDescription, 2, 10, 94);
-
-        g.setForegroundColor(TextColor.ANSI.YELLOW);
-        g.putString(2, 13, "[↑/↓] sekcja   [←/→] wybór   [R] domyślne   [Enter] start   [Esc] wstecz");
-        screen.refresh();
-    }
-
-    private void drawRow(int y, String name, String value, boolean focused) throws IOException {
-        g.setForegroundColor(focused ? TextColor.ANSI.GREEN : TextColor.ANSI.WHITE);
-        String line = String.format("%-18s: %s", name, value);
-        String text = (focused ? "> " : "  ") + line;
-
-        if (focused) {
-            g.putString(2, y, text, SGR.BOLD);
-        } else {
-            g.putString(2, y, text);
-        }
-    }
-
-    private void putWrap(String txt, int x, int y, int width) throws IOException {
-        String[] w = txt.split(" ");
-        StringBuilder row = new StringBuilder();
-        int cy = y;
-        for (String s : w) {
-            if (row.length() + s.length() + 1 > width) {
-                g.putString(x, cy++, row.toString());
-                row.setLength(0);
-            }
-            if (row.length() > 0) row.append(' ');
-            row.append(s);
-        }
-        if (row.length() > 0) g.putString(x, cy, row.toString());
+    ) {
+        SwingUtilities.invokeLater(() -> {
+            content.removeAll();
+            content.add(padded(label("Wybór zasad", 18, Font.BOLD)));
+            content.add(padded(label((focusedSection == 0 ? "› " : "  ") + "Best of: " + bestOf, 14, focusedSection == 0 ? Font.BOLD : Font.PLAIN)));
+            content.add(padded(label((focusedSection == 1 ? "› " : "  ") + "Tiebreak w setach: " + everySetLabel, 14, focusedSection == 1 ? Font.BOLD : Font.PLAIN)));
+            content.add(padded(label((focusedSection == 2 ? "› " : "  ") + "Finałowy set: " + finalSetLabel, 14, focusedSection == 2 ? Font.BOLD : Font.PLAIN)));
+            content.add(padded(label("Opis:", 14, Font.BOLD)));
+            JTextArea desc = new JTextArea(activeDescription);
+            desc.setLineWrap(true);
+            desc.setWrapStyleWord(true);
+            desc.setEditable(false);
+            desc.setBackground(content.getBackground());
+            content.add(padded(desc));
+            content.add(padded(label("[↑/↓] sekcja   [←/→] wybór   [R] domyślne   [Enter] start   [Esc] wstecz", 12, Font.PLAIN)));
+            content.revalidate();
+            content.repaint();
+        });
     }
 
     /**
      * Prosty dialog: Enter = TAK, Esc = NIE.
      */
-    public boolean confirm(String question) throws IOException {
-        fullClear();
-        g.setForegroundColor(TextColor.ANSI.WHITE);
-        g.putString(2, 2, question, SGR.BOLD);
-        g.setForegroundColor(TextColor.ANSI.YELLOW);
-        g.putString(2, 4, "[Enter] tak    [Esc] nie");
-        screen.refresh();
-        while (true) {
-            KeyStroke ks = screen.readInput();
-            if (ks == null) continue;
-            if (ks.getKeyType() == KeyType.Enter) return true;
-            if (ks.getKeyType() == KeyType.Escape) return false;
+    public boolean confirm(String question) {
+        final boolean[] result = {false};
+        try {
+            SwingUtilities.invokeAndWait(() -> {
+                int res = JOptionPane.showConfirmDialog(frame, question, "Potwierdź", JOptionPane.YES_NO_OPTION);
+                result[0] = (res == JOptionPane.YES_OPTION);
+            });
+        } catch (Exception e) {
+            return false;
         }
+        return result[0];
     }
 
     // ── WEJŚCIE KLAWIATUROWE ────────────────────────────────────
 
-    public UserIntent readIntent() throws IOException {
-        KeyStroke ks = screen.pollInput();
-        if (ks == null) {
-            try { Thread.sleep(16); } catch (InterruptedException ignored) {}
+    /**
+     * Nieblokujący odczyt liter dla meczu.
+     */
+    public UserIntent readIntent() {
+        try {
+            UserIntent intent = intentQueue.poll(16, TimeUnit.MILLISECONDS);
+            return intent != null ? intent : UserIntent.NONE;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
             return UserIntent.NONE;
         }
-        if (ks.getKeyType() == KeyType.Character) {
-            char c = Character.toUpperCase(ks.getCharacter());
-            return switch (c) {
-                case 'A' -> UserIntent.POINT_A;
-                case 'B' -> UserIntent.POINT_B;
-                case 'U' -> UserIntent.UNDO;
-                case 'R' -> UserIntent.REDO;
-                case 'X' -> UserIntent.FINISH;
-                case 'Q' -> UserIntent.QUIT;
-                default -> UserIntent.NONE;
-            };
+    }
+
+    public KeyStroke readRaw() {
+        try {
+            return rawQueue.take();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return new KeyStroke(KeyType.EOF);
         }
-        if (ks.getKeyType() == KeyType.EOF) return UserIntent.QUIT;
-        return UserIntent.NONE;
     }
-
-    public com.googlecode.lanterna.input.KeyStroke readRaw() throws IOException {
-        return screen.readInput();
-    }
-
-    public NavKey readKey() throws IOException {
-        KeyStroke ks = screen.readInput();
-        if (ks == null) return NavKey.NONE;
-        return switch (ks.getKeyType()) {
-            case ArrowUp -> NavKey.UP;
-            case ArrowDown -> NavKey.DOWN;
-            case ArrowLeft -> NavKey.LEFT;
-            case ArrowRight -> NavKey.RIGHT;
-            case Enter -> NavKey.ENTER;
-            case Escape -> NavKey.ESC;
-            default -> NavKey.NONE;
-        };
-    }
-
-    public void renderInputForm(String title, String label, String value) throws IOException {
-        fullClear();
-        g.setForegroundColor(TextColor.ANSI.WHITE);
-        g.putString(2, 1, title, SGR.BOLD);
-
-        g.setForegroundColor(TextColor.ANSI.CYAN);
-        g.putString(2, 4, label);
-
-        g.setForegroundColor(TextColor.ANSI.WHITE);
-        g.putString(4, 6, padRight(value, Math.max(20, value.length())));
-
-        g.setForegroundColor(TextColor.ANSI.YELLOW);
-        g.putString(2, 9, "[Enter] zatwierdź   [Backspace] usuń   [Esc] wstecz");
-
-        screen.refresh();
-    }
-
-    public void renderServer(String line) throws IOException {
-        g.setForegroundColor(TextColor.ANSI.WHITE);
-        g.putString(2, SCORE_ROW + 2, padRight(line, 50));
-        screen.refresh();
-    }
-
-    // ── NOWOŚĆ: GRAFICZNA DRABINKA ─────────────────────────────
 
     /**
-     * Rysuje graficzną drabinkę z łącznikami. Winnerzy są widoczni od razu,
-     * a aktualny mecz zaznaczony zieloną strzałką.
+     * Blokujący odczyt nawigacji (menu/listy).
      */
-    public void renderBracket(Tournament t) throws IOException {
-        fullClear();
+    public NavKey readKey() {
+        try {
+            return navQueue.take();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return NavKey.NONE;
+        }
+    }
 
-        int cols = screen.getTerminalSize().getColumns();
-        int rows = screen.getTerminalSize().getRows();
+    public void renderInputForm(String title, String fieldLabel, String value) {
+        SwingUtilities.invokeLater(() -> {
+            content.removeAll();
+            content.add(padded(label(title, 18, Font.BOLD)));
+            content.add(padded(label(fieldLabel, 14, Font.PLAIN)));
+            JTextField field = new JTextField(value, Math.max(20, value.length()));
+            field.setEditable(false);
+            content.add(padded(field));
+            content.add(padded(label("[Enter] zatwierdź   [Backspace] usuń   [Esc] wstecz", 12, Font.PLAIN)));
+            content.revalidate();
+            content.repaint();
+        });
+    }
 
-        g.setForegroundColor(TextColor.ANSI.WHITE);
-        String title = "PODGLĄD DRABINKI — " + t.size() + (t.isFinished() ? " [ZAKOŃCZONY]" : "");
-        g.putString(2, 1, clip(title, Math.max(20, cols - 4)), SGR.BOLD);
+    public void renderServer(String line) {
+        SwingUtilities.invokeLater(() -> {
+            if (serverLabel != null) {
+                serverLabel.setText(line);
+            }
+        });
+    }
 
-        int roundsCount = t.rounds().size();
-        int colWidth = Math.max(24, Math.min(36, (cols - 6) / Math.max(1, roundsCount)));
-        int leftX = 2;
-        int baseGap = 3;
-        int topOffset = 3;
-
-        for (int r = 0; r < roundsCount; r++) {
-            var round = t.rounds().get(r);
-            int x = leftX + r * colWidth;
-
-            g.setForegroundColor(TextColor.ANSI.CYAN);
-            g.putString(x, topOffset - 1, "Runda " + (r + 1));
-
-            int block = baseGap * (1 << r);
-            int yStart = topOffset;
-
-            for (int i = 0; i < round.size(); i++) {
-                var p = round.pairs().get(i);
-                int y = yStart + i * block;
-
-                boolean isCurrent = (r == t.currentRound() && i == t.currentPair() && !t.isFinished());
-
-                String a = p.a() == null || p.a().isBlank() ? "—" : p.a();
-                String b = p.b() == null || p.b().isBlank() ? "—" : p.b();
-
-                // 0 = A wygrał, 1 = B wygrał, -1 = jeszcze nie
-                int winnerIdx = -1;
-                if (p.isDone()) {
-                    Integer w = p.winner();
-                    if (w != null && (w == 0 || w == 1)) winnerIdx = w;
+    private void installKeyHandling() {
+        frame.addKeyListener(new KeyAdapter() {
+            @Override
+            public void keyPressed(KeyEvent e) {
+                NavKey nav = switch (e.getKeyCode()) {
+                    case KeyEvent.VK_UP -> NavKey.UP;
+                    case KeyEvent.VK_DOWN -> NavKey.DOWN;
+                    case KeyEvent.VK_LEFT -> NavKey.LEFT;
+                    case KeyEvent.VK_RIGHT -> NavKey.RIGHT;
+                    case KeyEvent.VK_ENTER -> NavKey.ENTER;
+                    case KeyEvent.VK_ESCAPE -> NavKey.ESC;
+                    default -> NavKey.NONE;
+                };
+                if (nav != NavKey.NONE) {
+                    navQueue.offer(nav);
+                    KeyType type = switch (nav) {
+                        case UP -> KeyType.ArrowUp;
+                        case DOWN -> KeyType.ArrowDown;
+                        case LEFT -> KeyType.ArrowLeft;
+                        case RIGHT -> KeyType.ArrowRight;
+                        case ENTER -> KeyType.Enter;
+                        case ESC -> KeyType.Escape;
+                        default -> KeyType.Unknown;
+                    };
+                    rawQueue.offer(new KeyStroke(type));
                 }
 
-                // rysuj boks; zwycięzca ma zielony wiersz
-                putBox(x, y, colWidth - 2, a, b, isCurrent, winnerIdx);
-
-                // łączniki do kolejnej kolumny
-                if (r < roundsCount - 1) {
-                    int xRight = x + (colWidth - 2);
-                    int midA = y;
-                    int midB = y + 1;
-                    int joinY = y + (block / 2);
-
-                    g.setForegroundColor(TextColor.ANSI.WHITE);
-                    hLine(xRight, midA, 3);
-                    hLine(xRight, midB, 3);
-                    vLine(xRight + 3, Math.min(midA, midB), Math.max(midA, midB));
-                    if (block >= 2) {
-                        vLine(xRight + 3, Math.min(midA, midB), joinY);
-                        hLine(xRight + 3, joinY, 3);
-                    }
+                if (e.getKeyCode() == KeyEvent.VK_BACK_SPACE) {
+                    rawQueue.offer(new KeyStroke(KeyType.Backspace));
                 }
             }
-        }
 
-        g.setForegroundColor(TextColor.ANSI.YELLOW);
-        g.putString(2, rows - 2, clip("[Esc] wstecz   Zielony wiersz = zwycięzca   Zielona strzałka = aktualny mecz", Math.max(10, cols - 4)));
-        screen.refresh();
+            @Override
+            public void keyTyped(KeyEvent e) {
+                char c = e.getKeyChar();
+                char upper = Character.toUpperCase(c);
+                switch (upper) {
+                    case 'A' -> intentQueue.offer(UserIntent.POINT_A);
+                    case 'B' -> intentQueue.offer(UserIntent.POINT_B);
+                    case 'U' -> intentQueue.offer(UserIntent.UNDO);
+                    case 'R' -> intentQueue.offer(UserIntent.REDO);
+                    case 'X' -> intentQueue.offer(UserIntent.FINISH);
+                    case 'Q' -> intentQueue.offer(UserIntent.QUIT);
+                    default -> {
+                    }
+                }
+
+                if (!Character.isISOControl(c)) {
+                    rawQueue.offer(new KeyStroke(c, false, e.isAltDown()));
+                }
+            }
+        });
     }
 
-    // ── PRYMITYWY RYSUJĄCE DLA DRABINKI ─────────────────────────
-
-    private void putBox(int x, int y, int w, String a, String b, boolean current, int winnerIdx) throws IOException {
-        String top = "┌" + "─".repeat(Math.max(2, w - 2)) + "┐";
-        String bot = "└" + "─".repeat(Math.max(2, w - 2)) + "┘";
-        String lineA = "│ " + padRight(a, Math.max(0, w - 4)) + " │";
-        String lineB = "│ " + padRight(b, Math.max(0, w - 4)) + " │";
-
-        g.setForegroundColor(TextColor.ANSI.WHITE);
-        g.putString(x, y - 1, top);
-
-        // A – podświetl jeśli winnerIdx==0; zielona strzałka jeśli current
-        if (winnerIdx == 0) g.setForegroundColor(TextColor.ANSI.GREEN);
-        else g.setForegroundColor(TextColor.ANSI.WHITE);
-        String leftIndicatorA = current ? "►" : " ";
-        g.putString(x, y, leftIndicatorA + lineA.substring(1)); // zamieniamy pierwszy znak na znacznik
-
-        // B – podświetl jeśli winnerIdx==1
-        if (winnerIdx == 1) g.setForegroundColor(TextColor.ANSI.GREEN);
-        else g.setForegroundColor(TextColor.ANSI.WHITE);
-        String leftIndicatorB = " ";
-        g.putString(x, y + 1, leftIndicatorB + lineB.substring(1));
-
-        g.setForegroundColor(TextColor.ANSI.WHITE);
-        g.putString(x, y + 2, bot);
+    private JButton actionButton(String text, UserIntent intent) {
+        JButton btn = new JButton(text);
+        btn.addActionListener(e -> intentQueue.offer(intent));
+        return btn;
     }
 
-    private String highlight(String s) {
-        // Tu tylko zwracamy s; atrybut BOLD załatwiamy przez osobne wywołanie,
-        // ale lanterna nie miesza łatwo SGR per fragment. Utrzymujemy spójny wygląd.
-        return s;
+    private JPanel padded(JComponent comp) {
+        JPanel panel = new JPanel(new BorderLayout());
+        panel.setBorder(BorderFactory.createEmptyBorder(8, 12, 8, 12));
+        panel.add(comp, BorderLayout.CENTER);
+        return panel;
     }
 
-    private void hLine(int x, int y, int len) {
-        if (len <= 0) return;
-        g.putString(x, y, "─".repeat(len));
-    }
-
-    private void vLine(int x, int y1, int y2) {
-        int from = Math.min(y1, y2);
-        int to = Math.max(y1, y2);
-        for (int yy = from; yy <= to; yy++) {
-            g.putString(x, yy, "│");
-        }
-    }
-
-    private static String safeName(String s, int max) {
-        if (s == null || s.isBlank()) return padRight("-", Math.max(1, max));
-        return clip(s, Math.max(1, max));
-    }
-
-    private static String padRight(String s, int len) {
-        if (s.length() >= len) return s;
-        return s + " ".repeat(len - s.length());
-    }
-
-    private static String clip(String s, int max) {
-        if (max <= 0) return "";
-        if (s.length() <= max) return s;
-        if (max <= 1) return "…";
-        return s.substring(0, max - 1) + "…";
+    private JLabel label(String text, int size, int style) {
+        JLabel lbl = new JLabel(text);
+        lbl.setFont(lbl.getFont().deriveFont(style, (float) size));
+        return lbl;
     }
 
     private static String firstNameOf(String full) {
@@ -503,19 +358,10 @@ public final class LanternaView implements AutoCloseable {
         return sp > 0 ? s.substring(0, sp) : s;
     }
 
-    private void clearLine(int y) throws IOException {
-        int w = screen.getTerminalSize().getColumns();
-        g.setForegroundColor(TextColor.ANSI.DEFAULT);
-        g.putString(0, y, " ".repeat(Math.max(0, w)));
-    }
-
     @Override
     public void close() {
-        if (screen != null) {
-            try {
-                screen.stopScreen();
-            } catch (Exception ignored) {
-            }
+        if (frame != null) {
+            frame.dispose();
         }
     }
 }
