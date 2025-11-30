@@ -17,7 +17,7 @@ import com.hubertbobowik.tiebreaker.domain.Tournament;
 import java.io.IOException;
 import java.util.List;
 
-public final class LanternaView implements AutoCloseable {
+public class LanternaView implements AutoCloseable {
 
     // Intencje podczas meczu (litery)
     public enum UserIntent {POINT_A, POINT_B, UNDO, REDO, FINISH, QUIT, NONE}
